@@ -107,8 +107,9 @@ function buildEmailHtml(params: {
   subtotal: number;
   vatRate: number; // 0.19
   discountPct: number; // 0..100
+  sales?: { name?: string; email?: string; phone?: string };
 }) {
-  const { customer, lineItems, subtotal, vatRate, discountPct } = params;
+  const { customer, lineItems, subtotal, vatRate, discountPct, sales } = params;
   const discountAmount = Math.max(0, Math.min(100, discountPct || 0)) / 100 * subtotal;
   const net = Math.max(0, subtotal - discountAmount);
   const vat = net * vatRate;
@@ -223,8 +224,14 @@ function buildEmailHtml(params: {
 
         <!-- Grußformel neutral -->
         <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen</p>
-        <p style="${s.p}"><strong>${CEO.name}</strong></p>
-        <p style="${s.small}">${CEO.title}</p>
+        ${ (sales?.name || sales?.email || sales?.phone) ? `
+          ${sales?.name ? `<p style="${s.p}"><strong>${escapeHtml(sales.name)}</strong></p>` : ""}
+          ${sales?.phone ? `<p style="${s.small}">Tel. ${escapeHtml(sales.phone)}</p>` : ""}
+          ${sales?.email ? `<p style="${s.small}">${escapeHtml(sales.email)}</p>` : ""}
+        ` : `
+          <p style="${s.p}"><strong>${CEO.name}</strong></p>
+          <p style="${s.small}">${CEO.title}</p>
+        `}
         <hr style="border:none;border-top:1px solid #eee;margin:16px 0 10px 0"/>
 
         <!-- CEO Note am Ende (rechteckiges Foto) -->
@@ -352,6 +359,8 @@ export default function Page() {
 
   // Customer
   const [customer, setCustomer] = useState<Customer>({ salutation: "Herr", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+  const [salesName, setSalesName] = useState("");
+  const [salesPhone, setSalesPhone] = useState("");
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
@@ -370,7 +379,7 @@ export default function Page() {
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
   const totals = { subtotal, discountPct, discountAmount, netAfterDiscount, vat: netAfterDiscount * vatRate, gross: netAfterDiscount * (1 + vatRate) } as const;
 
-  const offerHtml = useMemo(() => buildEmailHtml({ customer, lineItems, subtotal, vatRate, discountPct }), [customer, lineItems, subtotal, vatRate, discountPct]);
+  const offerHtml = useMemo(() => buildEmailHtml({ customer, lineItems, subtotal, vatRate, discountPct, sales: { name: salesName, email: salesEmail, phone: salesPhone } }), [customer, lineItems, subtotal, vatRate, discountPct, salesName, salesEmail, salesPhone]);
 
   // UX state
   const [sending, setSending] = useState(false);
@@ -533,11 +542,17 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-4 mt-4">
+        <div className="grid md:grid-cols-4 gap-4 mt-4">
+          <Input placeholder="Vertrieb Name" value={salesName} onChange={(e) => setSalesName(e.target.value)} />
+          <Input placeholder="Vertrieb Telefon" value={salesPhone} onChange={(e) => setSalesPhone(e.target.value)} />
           <div className="md:col-span-2 flex items-center gap-2">
             <Label className="text-sm">Vertrieb E‑Mail</Label>
             <Input placeholder="vertrieb@xvoice-uc.de" type="email" value={salesEmail} onChange={(e) => setSalesEmail(e.target.value)} />
           </div>
+          <div className="md:col-span-4">
+            <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          </div>
+        </div>
           <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
 
