@@ -5,11 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Eye, Download, Copy, Mail, ShoppingCart, Trash2, Check } from "lucide-react";
+import { Eye, Download, Mail, ShoppingCart, Trash2, Check } from "lucide-react";
 
 // ===== Brand & Company =====
 const BRAND = {
-  name: "xVoice UC",
   primary: "#ff4e00",
   dark: "#111",
   headerBg: "#000000",
@@ -18,7 +17,7 @@ const BRAND = {
 } as const;
 
 const COMPANY = {
-  name: "xVoice UC UG (Haftungsbeschränkt)",
+  legal: "xVoice UC UG (Haftungsbeschränkt)",
   street: "Peter-Müller-Straße 3",
   zip: "40468",
   city: "Düsseldorf",
@@ -27,9 +26,13 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
+// Toggle for CTA links in E-Mail
+const SHOW_FEEDBACK_BTN = true; // "Rückmeldung vereinbaren"
+const SHOW_INQUIRY_BTN = true;  // "Rückfrage zum Angebot"
+
 // ===== Data (Seite 1 – Lizenzen mtl.) =====
 const CATALOG = [
-  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail." },
+  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail." },
   { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", desc: "Lizenz für einfache Endgeräte: analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer." },
   { sku: "XVMO", name: "xVoice UC Smartphone Only", price: 5.70, unit: "/Monat", desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS)." },
   { sku: "XVTE", name: "xVoice UC Teams Integration", price: 4.75, unit: "/Monat", desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich)." },
@@ -72,15 +75,15 @@ function escapeHtml(str: string) {
 }
 function fullCustomerAddress(c: Customer) {
   const parts = [c.street, [c.zip, c.city].filter(Boolean).join(" ")].filter(Boolean);
-  return parts.join(" · ");
+  return parts.join(", ");
 }
 function greetingLine(c: Customer) {
   const name = (c.contact || "").trim();
-  if (!name) return "Guten Tag";
-  return c.salutation === "Frau" ? `Sehr geehrte Frau ${name}` : c.salutation === "Herr" ? `Sehr geehrter Herr ${name}` : `Guten Tag ${name}`;
+  if (!name) return "Guten Tag,";
+  return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : c.salutation === "Herr" ? `Sehr geehrter Herr ${name},` : `Guten Tag ${name},`;
 }
 
-// ===== Email HTML Builder =====
+// ===== Email HTML Builder (matches requested layout) =====
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
@@ -113,17 +116,15 @@ function buildEmailHtml(params: {
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
     totalRow: "padding:8px 8px;font-size:13px",
-    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
-    firmH: "margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111",
-    firm: "margin:0;font-size:12px;color:#444",
-    gap: "margin-top:18px",
-    bigGapTop: "margin-top:24px",
+    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`;
   } as const;
 
   const addressCustomer = fullCustomerAddress(customer);
   const clientImage = "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full";
   const ceoPhoto = "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full";
   const ceoSign = "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full";
+
+  const feedbackUrl = "https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot";
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -144,109 +145,98 @@ function buildEmailHtml(params: {
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
+        <p style="${s.p}">${escapeHtml(customer.company || "Firma unbekannt")}</p>
 
-        ${addressCustomer || customer.company || customer.contact ? `
-        <div style="margin:6px 0 12px 0">
-          ${customer.company ? `<p style="${s.p}">${escapeHtml(customer.company)}</p>` : ""}
-          <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
-          ${addressCustomer ? `<p style="${s.p}">${escapeHtml(addressCustomer)}</p>` : ""}
-          ${customer.email ? `<p style="${s.pSmall}">${escapeHtml(customer.email)}</p>` : ""}
-        </div>` : ""}
+        <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
 
-        <p style="${s.p}"><strong>vielen Dank für Ihr Interesse an xVoice UC.</strong> Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM-Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
+        <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
         <p style="${s.p}">Unsere Lösung bietet Ihnen nicht nur höchste Flexibilität und Ausfallsicherheit, sondern lässt sich auch vollständig in Ihre bestehende Umgebung integrieren. Auf Wunsch übernehmen wir gerne die gesamte Koordination der Umstellung, sodass Sie sich um nichts kümmern müssen.</p>
-        <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams-Call, ganz wie es Ihnen am besten passt.</p>
+        <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams‑Call, ganz wie es Ihnen am besten passt.</p>
+
+        ${SHOW_FEEDBACK_BTN ? `<div style="margin:6px 0 16px 0"><a href="${feedbackUrl}" style="${s.btn}" target="_blank" rel="noopener">Rückmeldung vereinbaren</a></div>` : ""}
+
         <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
 
-        <div style="${s.gap}">
-          <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;max-width:700px;border-radius:10px;border:1px solid #eee;display:block" />
-        </div>
-
-        <div style="${s.gap}">
+        <div style="margin:18px 0 8px 0">
           <h3 style="${s.h3}">Warum xVoice UC?</h3>
           <ul style="padding-left:18px;margin:8px 0 12px 0">
-            <li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & führende CRMs</li>
-            <li style="${s.li}"><strong>Cloud</strong>-Betrieb in deutschen Rechenzentren – DSGVO-konform</li>
-            <li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
-            <li style="${s.li}">Optionale <strong>4h-SLA</strong> & priorisierter Support</li>
-            <li style="${s.li}">Portierung bestehender Rufnummern inklusive</li>
+            <li style="${s.li}">Nahtlose Integration in Microsoft Teams & CRM/Helpdesk</li>
+            <li style="${s.li}">Cloud in Deutschland · DSGVO‑konform</li>
+            <li style="${s.li}">Schnelle Bereitstellung, skalierbar je Nutzer</li>
+            <li style="${s.li}">Optionale 4h‑SLA & priorisierter Support</li>
           </ul>
         </div>
 
-        <div style="${s.gap}">
-          <table width="100%" style="border-collapse:collapse;margin-top:6px">
-            <thead>
-              <tr>
-                <th style="${s.th}">Position</th>
-                <th style="${s.th}">Beschreibung</th>
-                <th style="${s.th}">Menge</th>
-                <th style="${s.th}">Einzel (netto)</th>
-                <th style="${s.th}">Summe (netto)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${lineItems.map(li => `
-                <tr>
-                  <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="font-size:11px;color:#777">${li.sku}</div></td>
-                  <td style="${s.td}">${li.desc ? escapeHtml(li.desc) : ""}</td>
-                  <td style="${s.td}">${li.quantity}</td>
-                  <td style="${s.td}">${formatMoney(li.price)}</td>
-                  <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
-                </tr>
-              `).join("")}
-              <tr>
-                <td colspan="3"></td>
-                <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
-                <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
-              </tr>
-              ${discountAmount > 0 ? `
-              <tr>
-                <td colspan="3"></td>
-                <td align="right" style="${s.totalRow}">Rabatt (${discountPct}%)</td>
-                <td style="${s.totalRow}"><strong>−${formatMoney(discountAmount)}</strong></td>
-              </tr>` : ""}
-              <tr>
-                <td colspan="3"></td>
-                <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
-                <td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td>
-              </tr>
-              <tr>
-                <td colspan="3"></td>
-                <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
-                <td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td>
-              </tr>
-              <tr>
-                <td colspan="3"></td>
-                <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
-                <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
-              </tr>
-            </tbody>
-          </table>
+        <div style="margin:8px 0 12px 0">
+          <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;max-width:700px;border-radius:10px;border:1px solid #eee;display:block" />
         </div>
 
-        <div style="${s.bigGapTop}">
+        <table width="100%" style="border-collapse:collapse;margin-top:10px">
+          <thead>
+            <tr>
+              <th style="${s.th}">Position</th>
+              <th style="${s.th}">Menge</th>
+              <th style="${s.th}">Einzel (netto)</th>
+              <th style="${s.th}">Summe (netto)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lineItems.map(li => `
+              <tr>
+                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="font-size:11px;color:#777">${li.sku}${li.desc ? ` · ${escapeHtml(li.desc)}` : ""}</div></td>
+                <td style="${s.td}">${li.quantity}</td>
+                <td style="${s.td}">${formatMoney(li.price)}</td>
+                <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
+              </tr>
+            `).join("")}
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
+            </tr>
+            ${discountAmount > 0 ? `
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td>
+            </tr>` : ""}
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
+          ${SHOW_INQUIRY_BTN ? `<a href="${feedbackUrl}" style="${s.btn}" target="_blank" rel="noopener">Rückfrage zum Angebot</a>` : ""}
         </div>
 
-        <div style="margin-top:26px;margin-bottom:4px">
+        <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
+
+        <div style="margin-top:18px">
           <p style="${s.p}">Mit freundlichen Grüßen</p>
-          <p style="${s.p}"><strong>${escapeHtml(salesperson.name || "")}</strong><br/>
-          ${salesperson.email ? `E-Mail: ${escapeHtml(salesperson.email)}<br/>` : ""}
-          ${salesperson.phone ? `Telefon: ${escapeHtml(salesperson.phone)}` : ""}</p>
+          <p style="${s.p}">${salesperson.name ? `<strong>${escapeHtml(salesperson.name)}</strong><br/>` : ""}${escapeHtml(salesperson.email || COMPANY.email)}${salesperson.phone ? ` · ${escapeHtml(salesperson.phone)}` : ""}</p>
         </div>
 
-        <div style="margin-top:26px;border-top:1px solid #eee;padding-top:16px;text-align:center">
+        <div style="margin-top:20px;border-top:1px solid #eee;padding-top:16px;text-align:center">
           <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:120px;margin-bottom:10px;display:inline-block;border-radius:10px" />
-          <p style="${s.p}"><strong>Dipl.-Ing. (FH) Sebastian Brandl</strong><br/>Geschäftsführer</p>
-          <img src="${ceoSign}" alt="Unterschrift" style="width:160px;margin-top:6px;display:inline-block" />
+          <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“</em></p>
+          <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:6px;display:inline-block" />
+          <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
         </div>
 
-        <p style="${s.pSmall};margin-top:14px">Alle Preise in EUR netto zzgl. der gesetzlichen Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid #eee">
-          <p style="${s.firmH}">${COMPANY.name}</p>
-          <p style="${s.firm}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
-          <p style="${s.firm}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
+          <p style="${s.pSmall}">${COMPANY.legal}</p>
+          <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+          <p style="${s.pSmall}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+          <p style="${s.pSmall}">© ${new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
         </div>
       </div>
     </div>
@@ -314,8 +304,7 @@ function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; disco
   return (
     <div className="space-y-1 text-sm">
       <Row label="Zwischensumme (netto)" value={formatMoney(subtotal)} />
-      {discountAmount > 0 && <Row label="Rabatt" value={"−" + formatMoney(discountAmount)} />}
-      <Row label="Zwischensumme nach Rabatt" value={formatMoney(net)} />
+      {discountAmount > 0 && <Row label="Zwischensumme nach Rabatt" value={formatMoney(subtotal - discountAmount)} />}
       <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
       <Row label="Bruttosumme" value={formatMoney(gross)} strong />
     </div>
@@ -335,7 +324,7 @@ export default function Page() {
   // customer
   const [customer, setCustomer] = useState<Customer>({
     company: "",
-    salutation: "Herr",
+    salutation: "Guten Tag",
     contact: "",
     email: "",
     phone: "",
@@ -368,8 +357,6 @@ export default function Page() {
   const [sending, setSending] = useState(false);
   const [sendOk, setSendOk] = useState(false);
   const [error, setError] = useState("");
-  const [copyOk, setCopyOk] = useState(false);
-  const [copyError, setCopyError] = useState("");
 
   function openPreviewNewTab() {
     try {
@@ -405,21 +392,9 @@ export default function Page() {
   }
 
   async function postJson(url: string, payload: any) {
-    try {
-      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json().catch(() => ({}));
-    } catch (err: any) {
-      const msg = String(err?.message || err || "");
-      if (/UnsupportedHttpVerb|405|method not allowed/i.test(msg)) {
-        const minimal = { subject: payload?.meta?.subject || "xVoice Angebot", to: (payload?.recipients || []).join(","), company: payload?.customer?.company || "" };
-        const qs = new URLSearchParams({ data: JSON.stringify(minimal) }).toString();
-        const res2 = await fetch(`${url}?${qs}`, { method: "GET" });
-        if (!res2.ok) throw new Error(await res2.text());
-        return res2.json().catch(() => ({}));
-      }
-      throw err;
-    }
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json().catch(() => ({}));
   }
 
   async function handleSendEmail() {
@@ -440,9 +415,9 @@ export default function Page() {
 
   function resetAll() {
     setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
-    setCustomer({ company: "", salutation: "Herr", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+    setCustomer({ company: "", salutation: "Guten Tag", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
     setSales({ name: "", email: "", phone: "" });
-    setSendOk(false); setError(""); setDiscountPct(0); setCopyOk(false); setCopyError("");
+    setSendOk(false); setError(""); setDiscountPct(0);
   }
 
   return (
@@ -489,9 +464,9 @@ export default function Page() {
         <div className="grid md:grid-cols-3 gap-4">
           <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
           <select className="border rounded px-3 py-2 text-sm" value={customer.salutation} onChange={(e) => setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })}>
+            <option>Guten Tag</option>
             <option>Herr</option>
             <option>Frau</option>
-            <option>Guten Tag</option>
           </select>
           <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
           <Input placeholder="E-Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
@@ -525,8 +500,6 @@ export default function Page() {
 
         {sendOk && (<div className="mt-3 flex items-center gap-2 text-green-700 text-sm"><Check size={16}/> Erfolgreich übermittelt.</div>)}
         {!!error && (<div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>)}
-        {copyOk && (<div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>)}
-        {!!copyError && (<div className="mt-3 text-amber-600 text-sm">{copyError}</div>)}
       </Section>
 
       <Section title="Live-Zusammenfassung">
