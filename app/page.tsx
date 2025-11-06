@@ -37,7 +37,7 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
-// ===== PRODUKTE (Seite 1 – Lizenzen mtl.) =====
+// ===== PRODUKTE – Lizenzen (mtl.) =====
 const CATALOG = [
   { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams, ACD, Callcenter, Fax2Mail." },
   { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", desc: "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon‑Nutzer." },
@@ -117,8 +117,8 @@ function buildEmailHtml(params: {
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5",
     totalRow: "padding:8px 8px;font-size:13px",
-    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
-    btnGhost: `display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
+    btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
+    btnGhost: `display:inline-block;background:#111;color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     firmH: "margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111",
     firm: "margin:0;font-size:12px;color:#444",
   } as const;
@@ -182,7 +182,7 @@ function buildEmailHtml(params: {
               </tr>
             `).join("")}
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}">Zwischensumme (netto)</td><td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td></tr>
-            ${discountAmount > 0 ? `<tr><td colspan="2"></td><td align=\"right\" style=\"${s.totalRow}\">Rabatt (${discountPct}%)</td><td style=\"${s.totalRow}\"><strong>−${formatMoney(discountAmount)}</strong></td></tr>` : ""}
+            ${discountAmount > 0 ? `<tr><td colspan=\"2\"></td><td align=\"right\" style=\"${s.totalRow}\">Rabatt (${discountPct}%)</td><td style=\"${s.totalRow}\"><strong>−${formatMoney(discountAmount)}</strong></td></tr>` : ""}
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td><td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td></tr>
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td><td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td></tr>
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td><td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td></tr>
@@ -425,12 +425,30 @@ export default function Page() {
 
       <Section title="Kundendaten & Versand">
         <div className="grid md:grid-cols-3 gap-4">
-          <div>
-            <Label htmlFor="salutation">Anrede</Label>
-            <select id="salutation" className="w-full border rounded p-2" value={customer.salutation} onChange={(e) => setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })}>
-              <option value="Herr">Herr</option>
-              <option value="Frau">Frau</option>
-            </select>
+          <div className="md:col-span-3">
+            <Label className="mb-1 block">Anrede</Label>
+            <div className="flex items-center gap-4">
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="salutation"
+                  value="Herr"
+                  checked={customer.salutation === "Herr"}
+                  onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })}
+                />
+                <span>Herr</span>
+              </label>
+              <label className="inline-flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="salutation"
+                  value="Frau"
+                  checked={customer.salutation === "Frau"}
+                  onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })}
+                />
+                <span>Frau</span>
+              </label>
+            </div>
           </div>
           <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
           <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
@@ -458,8 +476,8 @@ export default function Page() {
           <Button onClick={openPreviewNewTab} variant="secondary" className="gap-2"><Eye size={16}/> Vorschau (neuer Tab)</Button>
           <Button onClick={async () => { setCopyOk(false); setCopyError(""); const r = await safeCopyToClipboard(offerHtml); if (r.ok) setCopyOk(true); else { setCopyError("Kopieren blockiert. HTML wird stattdessen heruntergeladen."); handleDownloadHtml(); } }} className="gap-2" style={{ backgroundColor: BRAND.primary }}><Copy size={16}/> HTML kopieren</Button>
           <Button onClick={handleDownloadHtml} className="gap-2" variant="outline"><Download size={16}/> HTML herunterladen</Button>
-          <Button onClick={async () => { setSending(true); setError(""); setSendOk(false); try { await postJson(EMAIL_ENDPOINT, { meta: { subject }, offerHtml, customer, lineItems, totals, recipients: [customer.email, salesEmail].filter(Boolean) }); setSendOk(true); } catch (e: any) { setError(String(e?.message || e)); } finally { setSending(false); } }} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}><Mail size={16}/> Angebot per Mail senden</Button>
-          <Button onClick={async () => { setSending(true); setError(""); setSendOk(false); try { await postJson(ORDER_ENDPOINT, { orderIntent: true, offerHtml, customer, lineItems, totals }); setSendOk(true); } catch (e: any) { setError(String(e?.message || e)); } finally { setSending(false); } }} disabled={sending} className="gap-2" variant="outline"><ShoppingCart size={16}/> Jetzt bestellen</Button>
+          <Button onClick={handleSendEmail} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}><Mail size={16}/> Angebot per Mail senden</Button>
+          <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline"><ShoppingCart size={16}/> Jetzt bestellen</Button>
           <Button onClick={resetAll} variant="ghost" className="gap-2 text-red-600"><Trash2 size={16}/> Zurücksetzen</Button>
         </div>
 
