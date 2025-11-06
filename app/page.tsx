@@ -8,19 +8,19 @@ import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
 /**
- * app/page.tsx – xVoice Offer Builder (deploy-ready)
+ * app/page.tsx – xVoice Offer Builder (deploy‑ready)
  *
  * ✓ 19 % USt fix, Rabatt vor USt
- * ✓ XVPS Menge automatisch = XVPR + XVDV + XVMO (read-only)
+ * ✓ XVPS Menge automatisch = XVPR + XVDV + XVMO (read‑only)
  * ✓ Anredeauswahl (Herr/Frau) + Begrüßung in eigener Zeile
- * ✓ Kundenadresse direkt unter H1, jetzt exakt bündig mit dem Text
- * ✓ Artikeltexte unter der SKU in der Positionsliste
- * ✓ Mehr Luft: Intro ↔ Warum-Block ↔ Positionen
- * ✓ Header nur Logo (größer), Footer mit „xVoice UC UG (Haftungsbeschränkt)“
+ * ✓ Kundenadresse direkt unter H1, bündig mit Text (keine horizontale Einrückung)
+ * ✓ Artikeltexte (Beschreibungen) sichtbar
+ * ✓ Mehr Luft: Intro ↔ Zusatztext ↔ Warum‑Block ↔ Positionen
  * ✓ CTAs: Jetzt bestellen & Rückfrage zum Angebot
- * ✓ Sales-Signatur optional vor CEO-Block (CEO-Block am Ende)
- * ✓ Preview (neuer Tab), Download, Clipboard-Fallback
- * ✓ POST /api/send-offer & /api/place-order inkl. 405-Fallback (GET)
+ * ✓ Sales‑Signatur optional vor CEO‑Block (CEO am Ende, Titel „Geschäftsführer“)
+ * ✓ Header nur Logo (größer), Footer E‑Mail: „xVoice UC UG (Haftungsbeschränkt)“
+ * ✓ E‑Mail‑Footer extra Zeile: © 2025 xVoice UC · Impressum & Datenschutz auf xvoice‑uc.de
+ * ✓ Vorschau (neuer Tab), Download, Clipboard‑Fallback; E‑Mail/Order POST mit 405‑Fallback
  */
 
 // ====== TYPES ======
@@ -109,7 +109,7 @@ function greeting(customer: Customer) {
   return customer.salutation === "Frau" ? `Sehr geehrte Frau ${name}` : `Sehr geehrter Herr ${name}`;
 }
 
-// ====== EMAIL HTML (array push, kein verschachteltes Template) ======
+// ====== EMAIL HTML (array‑based, build‑safe) ======
 function buildEmailHtml(opts: {
   customer: Customer;
   lineItems: LineItem[];
@@ -133,7 +133,7 @@ function buildEmailHtml(opts: {
     card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
     header: "background:#000;color:#fff;padding:20px 22px;",
     headerTable: "width:100%;border-collapse:collapse",
-    logo: "display:block;height:72px;object-fit:contain", // größer im E‑Mail Header
+    logo: "display:block;height:72px;object-fit:contain",
     subtitle: "margin:2px 0 0 0;font-size:12px;opacity:.85;color:#fff",
     accent: `height:3px;background:${BRAND.primary};`,
     inner: "padding:26px 28px 36px 28px",
@@ -171,27 +171,35 @@ function buildEmailHtml(opts: {
   out.push(`<div style="${s.inner}">`);
   out.push(`<h2 style="${s.h1}">Ihr individuelles Angebot</h2>`);
 
-  // Kundenadresse direkt unter H1 – exakt bündig zum Text (kein zusätzliches linkes Padding)
-  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:8px 0 18px 0">`);
+  // Kundenadresse direkt unter H1 – bündig (kein horizontales Padding)
+  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 0;margin:10px 0 20px 0">`);
+  out.push(`<div style="padding:0 0">`);
   out.push(`<p style="${s.p};margin:0 0 4px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>`);
   if (customer.contact) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>`);
   if (address) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(address)}</p>`);
   if (customer.email) out.push(`<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>`);
-  out.push("</div>");
+  out.push(`</div>`);
+  out.push(`</div>`);
 
   // Begrüßung (eigene Zeile)
   out.push(`<p style="${s.p}"><strong>${escapeHtml(greet)},</strong></p>`);
 
-  // Introtext – gut lesbarer Absatz
+  // Introtext
   out.push(`<p style="${s.p};margin-bottom:14px">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>`);
 
+  // Zusatzabschnitt (gewünschter Text)
+  out.push(`<p style="${s.p}">Unsere Lösung bietet Ihnen nicht nur höchste Flexibilität und Ausfallsicherheit, sondern lässt sich auch vollständig in Ihre bestehende Umgebung integrieren. Auf Wunsch übernehmen wir gerne die gesamte Koordination der Umstellung, sodass Sie sich um nichts kümmern müssen.</p>`);
+  out.push(`<p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams‑Call, ganz wie es Ihnen am besten passt.</p>`);
+  out.push(`<div style="margin:10px 0 22px 0"><a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückmeldung vereinbaren</a></div>`);
+  out.push(`<p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>`);
+
   // Warum xVoice UC — großzügige Abstände
-  out.push(`<table width="100%" style="border-collapse:collapse;margin:28px 0 24px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden"><tr>`);
+  out.push(`<table width="100%" style="border-collapse:collapse;margin:28px 0 26px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden"><tr>`);
   out.push(`<td style="padding:22px;vertical-align:top"><div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:10px"><strong>Warum xVoice UC?</strong></div><ul style="margin:0;padding:0 0 0 18px;color:#333"><li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li><li style="${s.li}"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li><li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li><li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li></ul></td>`);
   out.push(`<td style="padding:0 20px 0 0;vertical-align:bottom;width:280px"><img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" /></td>`);
   out.push("</tr></table>");
 
-  // Positionen — Luft davor
+  // Positionen
   out.push(`<table width="100%" style="border-collapse:collapse;margin-top:26px"><thead><tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr></thead><tbody>`);
   for (const li of lineItems) {
     const desc = li.desc ? ` · ${escapeHtml(li.desc)}` : "";
@@ -208,7 +216,7 @@ function buildEmailHtml(opts: {
   out.push(`<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap"><a href="#" style="${s.btn}">Jetzt bestellen</a><a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a></div>`);
   out.push(`<p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>`);
 
-  // Gruß + Sales-Signatur optional
+  // Gruß & Sales‑Signatur
   out.push(`<p style="${s.p};margin-top:14px">Mit freundlichen Grüßen</p>`);
   if (sales && (sales.name || sales.phone || sales.email)) {
     if (sales.name) out.push(`<p style="${s.p}"><strong>${escapeHtml(sales.name)}</strong></p>`);
@@ -216,7 +224,7 @@ function buildEmailHtml(opts: {
     if (sales.email) out.push(`<p style="${s.small}">${escapeHtml(sales.email)}</p>`);
   }
 
-  // Abstand zwischen Sales- und CEO-Block
+  // Abstand zwischen Sales‑ und CEO‑Block
   out.push('<div style="height:24px"></div>');
 
   // CEO Note am Ende
@@ -229,6 +237,7 @@ function buildEmailHtml(opts: {
 
   // Firmenfooter
   out.push(`<div style="margin-top:20px;padding-top:12px;border-top:1px solid #eee"><p style="font-size:12px;color:#555;margin:0 0 4px 0;font-weight:bold">${COMPANY.legalName}</p><p style="font-size:12px;color:#444;margin:0">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p><p style="font-size:12px;color:#444;margin:0">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p></div>`);
+  out.push(`<div style="text-align:center;font-size:11px;color:#777;margin-top:12px">© 2025 xVoice UC · Impressum & Datenschutz auf <a href="https://www.xvoice-uc.de" style="color:#777;text-decoration:none">xvoice-uc.de</a></div>`);
 
   out.push("</div>"); // inner
   out.push("</div>"); // card
@@ -308,7 +317,7 @@ function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; disco
   return (
     <div className="space-y-1 text-sm">
       <Row label="Zwischensumme (netto)" value={formatMoney(subtotal)} />
-      {discountAmount > 0 && <Row label="Rabatt" value={"−" + formatMoney(discountAmount)} />}
+      {discountAmount > 0 && <Row label="Rabatt" value={"−" + formatMoney(discountAmount)} />} 
       <Row label="Zwischensumme nach Rabatt" value={formatMoney(net)} />
       <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
       <Row label="Bruttosumme" value={formatMoney(gross)} strong />
