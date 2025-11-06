@@ -11,10 +11,25 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
  * app/page.tsx — xVoice Offer Builder (deploy‑ready)
  * - Fixed 19% VAT, percent discount before VAT
  * - Clean totals block (wide spacing)
- * - Sales email HTML with salutation (Herr/Frau)
+ * - Sales email HTML with salutation (Herr/Frau), CEO note, product visual
  * - Preview (new tab), HTML download, safe clipboard fallback
  * - No section numbering; CI header black + larger logo
  */
+
+// ===== TYPES (declare BEFORE usage) =====
+export type Customer = {
+  salutation: "Herr" | "Frau";
+  company: string;
+  contact: string;
+  email: string;
+  phone: string;
+  street: string;
+  zip: string;
+  city: string;
+  notes: string;
+};
+
+type LineItem = { sku: string; name: string; price: number; quantity: number; total: number };
 
 // ===== BRAND / CI =====
 const BRAND = {
@@ -37,7 +52,7 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
-// Geschäftsführer/Brand Assets
+// Geschäftsführer/Assets
 const CEO = {
   name: "Sebastian Brandl",
   title: "Managing Director",
@@ -49,7 +64,16 @@ const PRODUCT_VISUAL = {
   ucClientUrl: "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full",
 } as const;
 
-type LineItem = { sku: string; name: string; price: number; quantity: number; total: number };
+// ===== PRODUKTE – Lizenzen (mtl.) =====
+const CATALOG = [
+  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams, ACD, Callcenter, Fax2Mail." },
+  { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", desc: "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon‑Nutzer." },
+  { sku: "XVMO", name: "xVoice UC Smartphone Only", price: 5.70, unit: "/Monat", desc: "Premium‑Funktionen, beschränkt auf mobile Nutzung (iOS/Android/macOS)." },
+  { sku: "XVTE", name: "xVoice UC Teams Integration", price: 4.75, unit: "/Monat", desc: "Native MS Teams Integration (Phone Standard Lizenz erforderlich)." },
+  { sku: "XVPS", name: "xVoice UC Premium Service 4h SLA (je Lizenz)", price: 1.35, unit: "/Monat", desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen." },
+  { sku: "XVCRM", name: "xVoice UC Software Integration Lizenz", price: 5.95, unit: "/Monat", desc: "Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.)." },
+  { sku: "XVF2M", name: "xVoice UC Fax2Mail Service", price: 0.99, unit: "/Monat", desc: "Eingehende Faxe als PDF per E‑Mail (virtuelle Fax‑Nebenstellen)." },
+] as const;
 
 const EMAIL_ENDPOINT = "/api/send-offer";
 const ORDER_ENDPOINT = "/api/place-order";
@@ -106,14 +130,13 @@ function buildEmailHtml(params: {
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5",
     totalRow: "padding:8px 8px;font-size:13px",
     btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
-    btnGhost: `display:inline-block;background:#111;color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     firmH: "margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111",
     firm: "margin:0;font-size:12px;color:#444",
   } as const;
 
   const addressCustomer = [customer.street, `${customer.zip || ""} ${customer.city || ""}`].filter(Boolean).join(" · ");
   const greet = greeting(customer);
-  
+
   return `<!DOCTYPE html>
 <html lang="de">
 <head><meta charSet="utf-8"/></head>
@@ -204,13 +227,8 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
-        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
-          <a href="#" style="${s.btn}">Jetzt bestellen</a>
-          <a href="${calendly}" style="${s.btnGhost}" target="_blank" rel="noopener">Beratungstermin</a>
-        </div>
-
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>Sebastian Brandl</strong><br/>Managing Director · xVoice UC</p>
+        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>${CEO.name}</strong><br/>${CEO.title} · xVoice UC</p>
 
         <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.firmH}">${COMPANY.name}</p>
@@ -444,23 +462,11 @@ export default function Page() {
             <Label className="mb-1 block">Anrede</Label>
             <div className="flex items-center gap-4">
               <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="salutation"
-                  value="Herr"
-                  checked={customer.salutation === "Herr"}
-                  onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })}
-                />
+                <input type="radio" name="salutation" value="Herr" checked={customer.salutation === "Herr"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })} />
                 <span>Herr</span>
               </label>
               <label className="inline-flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="salutation"
-                  value="Frau"
-                  checked={customer.salutation === "Frau"}
-                  onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })}
-                />
+                <input type="radio" name="salutation" value="Frau" checked={customer.salutation === "Frau"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })} />
                 <span>Frau</span>
               </label>
             </div>
