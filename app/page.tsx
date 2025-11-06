@@ -496,8 +496,8 @@ export default function Page() {
             return (
               <ProductRow key={item.sku} item={item} qty={q} onQty={onQ} readOnly={isService} helper={helper} />
             );
-          })} />
-          ))}
+          })}
+
         </div>
         <div className="mt-4 flex items-start justify-between gap-6">
           <div className="text-xs opacity-80">Alle Preise netto zzgl. gesetzlicher USt. Angaben ohne Gewähr.</div>
@@ -511,26 +511,26 @@ export default function Page() {
             <Label className="mb-1 block">Anrede</Label>
             <div className="flex items-center gap-4">
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="salutation" value="Herr" checked={customer.salutation === "Herr"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })} />
+                <input type="radio" name="salutation" value="Herr" checked={customer.salutation === "Herr"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })}
                 <span>Herr</span>
               </label>
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="salutation" value="Frau" checked={customer.salutation === "Frau"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })} />
+                <input type="radio" name="salutation" value="Frau" checked={customer.salutation === "Frau"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })}
                 <span>Frau</span>
               </label>
             </div>
           </div>
-          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
-          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
-          <Input placeholder="E‑Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
-          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
-          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
+          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })}
+          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })}
+          <Input placeholder="E‑Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
+          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
+          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })}
           <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
-            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} />
+            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })}
+            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
           </div>
           <div className="md:col-span-3">
-            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })} />
+            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
           </div>
         </div>
 
@@ -567,7 +567,7 @@ export default function Page() {
                 <div>{li.quantity}× {li.name} ({li.sku})</div>
                 <div className="tabular-nums">{formatMoney(li.total)}</div>
               </div>
-            ))}
+
             <div className="pt-2 border-t">
               <Totals subtotal={subtotal} discountAmount={discountAmount} vatRate={vatRate} />
             </div>
