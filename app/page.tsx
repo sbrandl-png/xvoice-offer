@@ -482,7 +482,7 @@ export default function Page() {
         }
       >
         <div className="grid grid-cols-1 gap-2">
-          <div className="grid grid-cols-[minmax(180px,1fr)_80px_120px_100px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+          <div className="grid grid-cols-[minmax(180px,1fr)_80px_180px_100px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
             <div>Preis</div>
             <div>Menge</div>
@@ -491,14 +491,14 @@ export default function Page() {
           {CATALOG.map((item) => {
             const isService = item.sku === "XVPS";
             const q = isService ? serviceQty : (qty[item.sku] || 0);
-            const onQ = isService ? () => {} : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: v }));
+            const onQ = isService ? (() => {}) : ((v: number) => setQty((prev) => ({ ...prev, [item.sku]: v })));
             const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
             return (
               <ProductRow key={item.sku} item={item} qty={q} onQty={onQ} readOnly={isService} helper={helper} />
             );
           })}
-
         </div>
+
         <div className="mt-4 flex items-start justify-between gap-6">
           <div className="text-xs opacity-80">Alle Preise netto zzgl. gesetzlicher USt. Angaben ohne Gewähr.</div>
           <Totals subtotal={subtotal} discountAmount={discountAmount} vatRate={vatRate} />
