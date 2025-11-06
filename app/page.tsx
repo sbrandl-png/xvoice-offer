@@ -37,29 +37,17 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
-// ===== PRODUKTE – Lizenzen (mtl.) =====
-const CATALOG = [
-  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams, ACD, Callcenter, Fax2Mail." },
-  { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", desc: "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon‑Nutzer." },
-  { sku: "XVMO", name: "xVoice UC Smartphone Only", price: 5.70, unit: "/Monat", desc: "Premium‑Funktionen, beschränkt auf mobile Nutzung (iOS/Android/macOS)." },
-  { sku: "XVTE", name: "xVoice UC Teams Integration", price: 4.75, unit: "/Monat", desc: "Native MS Teams Integration (Phone Standard Lizenz erforderlich)." },
-  { sku: "XVPS", name: "xVoice UC Premium Service 4h SLA (je Lizenz)", price: 1.35, unit: "/Monat", desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen." },
-  { sku: "XVCRM", name: "xVoice UC Software Integration Lizenz", price: 5.95, unit: "/Monat", desc: "Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.)." },
-  { sku: "XVF2M", name: "xVoice UC Fax2Mail Service", price: 0.99, unit: "/Monat", desc: "Eingehende Faxe als PDF per E‑Mail (virtuelle Fax‑Nebenstellen)." },
-] as const;
+// Geschäftsführer/Brand Assets
+const CEO = {
+  name: "Sebastian Brandl",
+  title: "Managing Director",
+  photoUrl: "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full",
+  signatureUrl: "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full",
+} as const;
 
-// ===== TYPES =====
-type Customer = {
-  salutation: "Herr" | "Frau";
-  company: string;
-  contact: string;
-  email: string;
-  phone: string;
-  street: string;
-  zip: string;
-  city: string;
-  notes: string;
-};
+const PRODUCT_VISUAL = {
+  ucClientUrl: "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full",
+} as const;
 
 type LineItem = { sku: string; name: string; price: number; quantity: number; total: number };
 
@@ -125,8 +113,7 @@ function buildEmailHtml(params: {
 
   const addressCustomer = [customer.street, `${customer.zip || ""} ${customer.city || ""}`].filter(Boolean).join(" · ");
   const greet = greeting(customer);
-  const calendly = "https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot";
-
+  
   return `<!DOCTYPE html>
 <html lang="de">
 <head><meta charSet="utf-8"/></head>
@@ -145,28 +132,56 @@ function buildEmailHtml(params: {
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
-        <p style="${s.p}">Stand ${todayIso()} · Netto‑Preise zzgl. USt.</p>
+        <p style="${s.p};font-size:15px;line-height:1.55;margin-top:6px">
+          <strong>${greet}</strong>, vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>.
+          Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen –
+          sicher, skalierbar und in deutschen Rechenzentren betrieben.
+        </p>
 
-        <p style="${s.p}"><strong>${greet}</strong>,</p>
-        <p style="${s.p}">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Auf Basis Ihrer Anforderungen haben wir ein passgenaues Angebot für Sie zusammengestellt. Mit xVoice verbinden Sie moderne Cloud‑Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – flexibel skalierbar, DSGVO‑konform und mit kurzen Bereitstellungszeiten.</p>
-        <ul style="padding-left:18px;margin:8px 0 12px 0">
-          <li style="${s.li}"><strong>Nahtlose Integration</strong> in Microsoft Teams & CRM/Helpdesk</li>
-          <li style="${s.li}"><strong>Cloud in Deutschland</strong> – DSGVO‑konform</li>
-          <li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
-          <li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li>
-          <li style="${s.li}">Portierung bestehender Rufnummern inklusive</li>
-        </ul>
+        <!-- Hero / Value Section -->
+        <table width="100%" style="border-collapse:collapse;margin:14px 0 10px 0;background:#0f1012;border-radius:12px;overflow:hidden">
+          <tr>
+            <td style="padding:18px 18px 18px 18px;vertical-align:top">
+              <div style="color:#fff;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div>
+              <ul style="margin:0;padding:0 0 0 18px;color:#d9dbe1">
+                <li style="margin:0 0 6px 0">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li>
+                <li style="margin:0 0 6px 0"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li>
+                <li style="margin:0 0 6px 0">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
+                <li style="margin:0 0 0 0">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li>
+              </ul>
+            </td>
+            <td style="padding:0;vertical-align:bottom;width:280px">
+              <img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #2a2c31" />
+            </td>
+          </tr>
+        </table>
 
-        <div style="margin:10px 0 14px 0">
-          <a href="${calendly}" style="${s.btnGhost}" target="_blank" rel="noopener">Rückfrage‑Termin buchen</a>
+        <!-- Kundendaten Box -->
+        <div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:12px 0 6px 0">
+          <p style="${s.p};margin:0 0 2px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
+          ${customer.contact ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
+          ${addressCustomer ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(addressCustomer)}</p>` : ""}
+          ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
         </div>
 
-        <div style="margin:12px 0 6px 0">
-          <p style="${s.p}"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
-          ${customer.contact ? `<p style="${s.p}">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
-          ${addressCustomer ? `<p style="${s.p}">${escapeHtml(addressCustomer)}</p>` : ""}
-          ${customer.email ? `<p style="${s.p}">${escapeHtml(customer.email)}</p>` : ""}
-        </div>
+        <!-- CEO Note -->
+        <table width="100%" style="border-collapse:collapse;margin:10px 0 4px 0">
+          <tr>
+            <td style="vertical-align:top;width:60px;padding:0 10px 0 0">
+              <img src="${CEO.photoUrl}" alt="${CEO.name}" style="display:block;width:54px;height:54px;border-radius:50%;object-fit:cover;border:1px solid #eee" />
+            </td>
+            <td style="vertical-align:top">
+              <div style="font-size:14px;color:#222;line-height:1.55">
+                „Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
+                Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“
+              </div>
+              <div style="margin-top:8px">
+                <img src="${CEO.signatureUrl}" alt="Unterschrift ${CEO.name}" style="display:block;max-width:160px;width:100%;opacity:0.9" />
+                <div style="font-size:12px;color:#555;margin-top:2px"><strong>${CEO.name}</strong> · ${CEO.title}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
 
         <table width="100%" style="border-collapse:collapse;margin-top:14px">
           <thead>
