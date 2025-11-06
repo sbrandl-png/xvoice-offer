@@ -8,15 +8,16 @@ import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
 /**
- * app/page.tsx — xVoice Offer Builder (deploy‑ready)
- * - Fixed 19% VAT, percent discount before VAT
- * - Clean totals block (wide spacing)
- * - Sales email HTML with salutation (Herr/Frau), CEO note, product visual
- * - Preview (new tab), HTML download, safe clipboard fallback
- * - No section numbering; CI header black + larger logo
+ * app/page.tsx — xVoice Offer Builder (deploy‑ready, CI aligned)
+ * - 19% USt. fest, Rabatt vor USt.
+ * - Kundenadresse direkt unter "Ihr individuelles Angebot"
+ * - Helles "Warum xVoice"‑Panel, CEO‑Block am Ende (rechteckiges Foto)
+ * - Vorschau (neuer Tab), HTML‑Download, Clipboard‑Fallback
+ * - E‑Mail/Order POST mit 405‑Fallback
+ * - Keine Abschnittsnummern, schwarzer Header, großes Logo
  */
 
-// ===== TYPES (declare BEFORE usage) =====
+// ===== TYPES =====
 export type Customer = {
   salutation: "Herr" | "Frau";
   company: string;
@@ -122,9 +123,9 @@ function buildEmailHtml(params: {
     subtitle: "margin:2px 0 0 0;font-size:12px;opacity:.8;color:#fff",
     accent: `height:3px;background:${BRAND.primary};`,
     inner: "padding:20px",
-    h1: `margin:0 0 8px 0;font-size:22px;color:${BRAND.dark}`,
+    h1: `margin:0 0 10px 0;font-size:22px;color:${BRAND.dark}`,
     p: "margin:0 0 8px 0;font-size:14px;color:#333",
-    li: "margin:0 0 4px 0;font-size:14px;color:#333",
+    li: "margin:0 0 6px 0;font-size:14px;color:#333",
     small: "font-size:12px;color:#666",
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5",
@@ -155,22 +156,32 @@ function buildEmailHtml(params: {
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
-        <p style="${s.p};font-size:15px;line-height:1.55;margin-top:6px">
+
+        <!-- Kundenadresse direkt unter der Überschrift -->
+        <div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:6px 0 12px 0">
+          <p style="${s.p};margin:0 0 2px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
+          ${customer.contact ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
+          ${addressCustomer ? `<p style=\"${s.p};margin:0 0 2px 0\">${escapeHtml(addressCustomer)}</p>` : ""}
+          ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
+        </div>
+
+        <!-- Einleitungstext (Lead) -->
+        <p style="${s.p};font-size:15px;line-height:1.6;margin-top:2px">
           <strong>${greet}</strong>, vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>.
           Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen –
           sicher, skalierbar und in deutschen Rechenzentren betrieben.
         </p>
 
-        <!-- Hero / Value Section -->
-        <table width="100%" style="border-collapse:collapse;margin:14px 0 10px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden">
+        <!-- Warum xVoice (helles Panel) -->
+        <table width="100%" style="border-collapse:collapse;margin:14px 0 12px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden">
           <tr>
             <td style="padding:18px 18px 18px 18px;vertical-align:top">
               <div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div>
               <ul style="margin:0;padding:0 0 0 18px;color:#333">
-                <li style="margin:0 0 6px 0">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li>
-                <li style="margin:0 0 6px 0"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li>
-                <li style="margin:0 0 6px 0">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
-                <li style="margin:0 0 0 0">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li>
+                <li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li>
+                <li style="${s.li}"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li>
+                <li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
+                <li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li>
               </ul>
             </td>
             <td style="padding:0;vertical-align:bottom;width:280px">
@@ -179,14 +190,8 @@ function buildEmailHtml(params: {
           </tr>
         </table>
 
-        <!-- Kundendaten Box -->
-        <div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:12px 0 6px 0">
-          <p style="${s.p};margin:0 0 2px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
-          ${customer.contact ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
-          ${addressCustomer ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(addressCustomer)}</p>` : ""}
-          ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
-        </div>
-        <table width=\"100%\" style=\"border-collapse:collapse;margin-top:14px\">
+        <!-- Positionen / Preise -->
+        <table width="100%" style="border-collapse:collapse;margin-top:14px">
           <thead>
             <tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr>
           </thead>
@@ -208,26 +213,29 @@ function buildEmailHtml(params: {
         </table>
 
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-        $1<!-- CEO Note (am Ende) -->
-        <table width=\"100%\" style=\"border-collapse:collapse;margin:14px 0 8px 0\">
+        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>${CEO.name}</strong><br/>${CEO.title} · xVoice UC</p>
+
+        <!-- CEO Note am Ende (rechteckiges Foto) -->
+        <table width="100%" style="border-collapse:collapse;margin:14px 0 8px 0">
           <tr>
-            <td style=\"vertical-align:top;width:72px;padding:0 12px 0 0\">
-              <img src=\"${CEO.photoUrl}\" alt=\"${CEO.name}\" style=\"display:block;width:72px;height:72px;object-fit:cover;border:1px solid #eee;border-radius:0\" />
+            <td style="vertical-align:top;width:80px;padding:0 12px 0 0">
+              <img src="${CEO.photoUrl}" alt="${CEO.name}" style="display:block;width:80px;height:80px;object-fit:cover;border:1px solid #eee;border-radius:0" />
             </td>
-            <td style=\"vertical-align:top\">
-              <div style=\"font-size:14px;color:#222;line-height:1.55\">
+            <td style="vertical-align:top">
+              <div style="font-size:14px;color:#222;line-height:1.55">
                 „Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
                 Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“
               </div>
-              <div style=\"margin-top:8px\">
-                <img src=\"${CEO.signatureUrl}\" alt=\"Unterschrift ${CEO.name}\" style=\"display:block;max-width:160px;width:100%;opacity:0.9\" />
-                <div style=\"font-size:12px;color:#555;margin-top:2px\"><strong>${CEO.name}</strong> · ${CEO.title}</div>
+              <div style="margin-top:8px">
+                <img src="${CEO.signatureUrl}" alt="Unterschrift ${CEO.name}" style="display:block;max-width:160px;width:100%;opacity:0.9" />
+                <div style="font-size:12px;color:#555;margin-top:2px"><strong>${CEO.name}</strong> · ${CEO.title}</div>
               </div>
             </td>
           </tr>
         </table>
 
-        $2
+        <!-- Firmenfooter -->
+        <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.firmH}">${COMPANY.name}</p>
           <p style="${s.firm}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
           <p style="${s.firm}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
