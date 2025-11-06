@@ -267,7 +267,7 @@ export default function Page() {
           <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
           <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
           <Input placeholder="E‑Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
-          <Input placeholder="Telefon" value={customer.phone} onChange__((e) => setCustomer({ ...customer, phone: e.target.value })} />
+          <Input placeholder="Telefon" value={customer.phone} onChange=((e) => setCustomer({ ...customer, phone: e.target.value })} />
           <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
             <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
