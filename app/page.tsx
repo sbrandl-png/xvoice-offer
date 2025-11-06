@@ -8,13 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
 /**
- * app/page.tsx — xVoice Offer Builder (stable, CI-konform)
- * - 19% USt. fix, Rabatt vor USt.
- * - Kundenadresse direkt unter „Ihr individuelles Angebot“
- * - „Warum xVoice“-Panel hell, CTAs (Jetzt bestellen + Rückfrage) vorhanden
- * - CEO-Block am Ende (rechteckiges Foto), Titel „Geschäftsführer“
- * - Vorschau (neuer Tab), HTML-Download, Clipboard-Fallback
- * - POST /api/send-offer & /api/place-order (405-GET-Fallback bleibt im Frontend)
+ * app/page.tsx — xVoice Offer Builder (stable)
+ * - 19% USt. fix, Rabatt vor USt., XVPS Menge = Summe (XVPR + XVDV + XVMO)
+ * - Kundenadresse direkt unter H1, Anrede (Herr/Frau) + Begrüßung eigene Zeile
+ * - Heller "Warum xVoice"‑Block (kein Schwarz) + UC‑Client Bild
+ * - CTAs: Jetzt bestellen (primär) + Rückfrage zum Angebot (sekundär)
+ * - CEO‑Block am Ende, Titel Geschäftsführer, rechteckiges Foto
+ * - Header ohne „UG“, Footer „xVoice UC UG (Haftungsbeschränkt)“
+ * - Vorschau (neuer Tab), HTML‑Download, Clipboard‑Fallback
+ * - API: POST /api/send-offer & /api/place-order (405‑GET‑Fallback)
  */
 
 // ===== TYPES =====
@@ -162,8 +164,8 @@ function buildEmailHtml(params: {
         <div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 0;margin:8px 0 12px 0">
           <p style="${s.p};margin:0 0 4px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
           ${customer.contact ? `<p style="${s.p};margin:0 0 4px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
-          ${addressCustomer ? `<p style="${s.p};margin:0 0 4px 0">${escapeHtml(addressCustomer)}</p>` : ""}
-          ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
+          ${addressCustomer ? `<p style=\"${s.p};margin:0 0 4px 0\">${escapeHtml(addressCustomer)}</p>` : ""}
+          ${customer.email ? `<p style=\"${s.p};margin:0\">${escapeHtml(customer.email)}</p>` : ""}
         </div>
 
         <!-- Begrüßung in eigener Zeile + Leadtext -->
@@ -220,7 +222,9 @@ function buildEmailHtml(params: {
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
 
         <!-- Grußformel neutral -->
-        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><br/></p>
+        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen</p>
+        <p style="${s.p}"><strong>${CEO.name}</strong></p>
+        <p style="${s.small}">${CEO.title}</p>
         <hr style="border:none;border-top:1px solid #eee;margin:16px 0 10px 0"/>
 
         <!-- CEO Note am Ende (rechteckiges Foto) -->
@@ -316,7 +320,6 @@ function ProductRow(
   );
 }
 
-
 function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; discountAmount: number; vatRate: number; }) {
   const net = Math.max(0, subtotal - discountAmount);
   const vat = net * vatRate;
@@ -354,18 +357,14 @@ export default function Page() {
 
   // Derived
   const lineItems: LineItem[] = useMemo(() => {
-    return CATALOG.map((p) => {
-      const quantity = p.sku === "XVPS" ? serviceQty : (qty[p.sku] || 0);
-      return {
-        sku: p.sku,
-        name: p.name,
-        price: p.price,
-        desc: p.desc,
-        quantity,
-        total: p.price * quantity,
-      } as LineItem;
-    }).filter((li) => li.quantity > 0);
+    return CATALOG
+      .map((p) => {
+        const quantity = p.sku === "XVPS" ? serviceQty : (qty[p.sku] || 0);
+        return { sku: p.sku, name: p.name, price: p.price, desc: p.desc, quantity, total: p.price * quantity } as LineItem;
+      })
+      .filter((li) => li.quantity > 0);
   }, [qty, serviceQty]);
+
   const subtotal = useMemo(() => lineItems.reduce((s, li) => s + li.total, 0), [lineItems]);
   const discountAmount = Math.max(0, Math.min(100, discountPct)) / 100 * subtotal;
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
@@ -511,26 +510,26 @@ export default function Page() {
             <Label className="mb-1 block">Anrede</Label>
             <div className="flex items-center gap-4">
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="salutation" value="Herr" checked={customer.salutation === "Herr"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })}
+                <input type="radio" name="salutation" value="Herr" checked={customer.salutation === "Herr"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Herr" })} />
                 <span>Herr</span>
               </label>
               <label className="inline-flex items-center gap-2">
-                <input type="radio" name="salutation" value="Frau" checked={customer.salutation === "Frau"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })}
+                <input type="radio" name="salutation" value="Frau" checked={customer.salutation === "Frau"} onChange={(e) => e.target.checked && setCustomer({ ...customer, salutation: "Frau" })} />
                 <span>Frau</span>
               </label>
             </div>
           </div>
-          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })}
-          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })}
-          <Input placeholder="E‑Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
-          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })}
+          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
+          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
+          <Input placeholder="E‑Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
+          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
+          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })}
-            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
+            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
+            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} />
           </div>
           <div className="md:col-span-3">
-            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
+            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })} />
           </div>
         </div>
 
@@ -567,7 +566,7 @@ export default function Page() {
                 <div>{li.quantity}× {li.name} ({li.sku})</div>
                 <div className="tabular-nums">{formatMoney(li.total)}</div>
               </div>
-
+            ))}
             <div className="pt-2 border-t">
               <Totals subtotal={subtotal} discountAmount={discountAmount} vatRate={vatRate} />
             </div>
