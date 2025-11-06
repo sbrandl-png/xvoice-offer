@@ -7,21 +7,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
-// =============================================================
-// app/page.tsx — xVoice Offer Builder (stable, compile-safe)
-// =============================================================
-// - 19 % USt fix, Rabatt vor USt
-// - XVPS Menge = Summe (XVPR + XVDV + XVMO) — readOnly
-// - Anrede (Herr/Frau) + Kundenadresse unter H1
-// - Heller "Warum xVoice" Block + UC-Client Bild
-// - CTAs: Jetzt bestellen + Rückfrage (neuer Tab)
-// - Sales-Signatur optional über CEO-Block, CEO-Block am Ende
-// - Header: nur Logo (ohne „xVoice UC“ Text)
-// - Footer: xVoice UC UG (Haftungsbeschränkt)
-// - Vorschau (neuer Tab), HTML-Download, Clipboard-Fallback
-// - API-POST mit 405/UnsupportedVerb Fallback (GET)
+/**
+ * app/page.tsx – xVoice Offer Builder (stable, deploy-ready)
+ * - 19 % USt fix, Rabatt vor USt
+ * - XVPS Menge = XVPR + XVDV + XVMO (readOnly, automatisch)
+ * - Anredeauswahl (Herr/Frau) + Begrüßung eigene Zeile
+ * - Kundenadresse direkt unter H1 im Angebots‑HTML
+ * - Größerer Abstand: Intro ↔ Warum‑Block ↔ Positionstabelle
+ * - Header nur Logo (größer), Footer mit „xVoice UC UG (Haftungsbeschränkt)“
+ * - Artikeltexte stehen in der Position (unter SKU)
+ * - CTAs: Jetzt bestellen & Rückfrage zum Angebot
+ * - Sales‑Signatur optional über CEO‑Block; CEO‑Block am Ende
+ * - Vorschau (neuer Tab), HTML‑Download, Clipboard‑Fallback
+ * - POST /api/send-offer & /api/place-order inkl. 405‑Fallback (GET)
+ */
 
-// ===== TYPES =====
+// ====== TYPES ======
 export type Customer = {
   salutation: "Herr" | "Frau";
   company: string;
@@ -34,9 +35,17 @@ export type Customer = {
   notes: string;
 };
 
-type LineItem = { sku: string; name: string; price: number; desc?: string; quantity: number; total: number };
+type LineItem = {
+  sku: string;
+  name: string;
+  price: number;
+  unit?: string;
+  desc?: string;
+  quantity: number;
+  total: number;
+};
 
-// ===== CI / BRAND =====
+// ====== CI / BRAND ======
 const BRAND = {
   primary: "#ff4e00",
   dark: "#43434a",
@@ -66,7 +75,7 @@ const PRODUCT_VISUAL = {
   ucClientUrl: "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full",
 } as const;
 
-// ===== DATA (Seite 1 – Lizenzen mtl.) =====
+// ====== DATA (Seite 1 – Lizenzen mtl.) ======
 const CATALOG = [
   { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, MS Teams, ACD, Callcenter, Fax2Mail." },
   { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", desc: "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon‑Nutzer." },
@@ -80,7 +89,7 @@ const CATALOG = [
 const EMAIL_ENDPOINT = "/api/send-offer";
 const ORDER_ENDPOINT = "/api/place-order";
 
-// ===== UTILS =====
+// ====== UTILS ======
 function formatMoney(value: number) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
 }
@@ -99,7 +108,7 @@ function greeting(customer: Customer) {
   return customer.salutation === "Frau" ? `Sehr geehrte Frau ${name}` : `Sehr geehrter Herr ${name}`;
 }
 
-// ===== EMAIL HTML (array-join, keine verschachtelten Backticks) =====
+// ====== EMAIL HTML (array-push, keine verschachtelten Backticks) ======
 function buildEmailHtml(opts: {
   customer: Customer;
   lineItems: LineItem[];
@@ -121,15 +130,14 @@ function buildEmailHtml(opts: {
     body: "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
     container: "max-width:720px;margin:0 auto;padding:24px",
     card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
-    header: "background:#000;color:#fff;padding:16px 20px;",
+    header: "background:#000;color:#fff;padding:20px 22px;",
     headerTable: "width:100%;border-collapse:collapse",
-    logo: "display:block;height:42px;object-fit:contain",
-    title: "margin:0;font-size:18px;line-height:22px;color:#fff",
-    subtitle: "margin:2px 0 0 0;font-size:12px;opacity:.8;color:#fff",
+    logo: "display:block;height:72px;object-fit:contain", // größer
+    subtitle: "margin:2px 0 0 0;font-size:12px;opacity:.85;color:#fff",
     accent: `height:3px;background:${BRAND.primary};`,
-    inner: "padding:20px",
-    h1: `margin:0 0 10px 0;font-size:22px;color:${BRAND.dark}`,
-    p: "margin:0 0 6px 0;font-size:14px;line-height:1.55;color:#333",
+    inner: "padding:26px 28px 36px 28px",
+    h1: `margin:0 0 12px 0;font-size:22px;color:${BRAND.dark}`,
+    p: "margin:0 0 8px 0;font-size:14px;line-height:1.6;color:#333",
     li: "margin:0 0 6px 0;font-size:14px;color:#333",
     small: "font-size:12px;color:#666",
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
@@ -148,36 +156,41 @@ function buildEmailHtml(opts: {
   out.push(`<body style="${s.body}">`);
   out.push(`<div style="${s.container}">`);
   out.push(`<div style="${s.card}">`);
+
+  // Header (nur Logo) + Kontakt rechts
   out.push(`<div style="${s.header}">`);
   out.push(`<table style="${s.headerTable}"><tr>`);
   out.push(`<td style="vertical-align:middle"><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>`);
-  out.push(`<td style="vertical-align:middle;text-align:right"><h1 style="${s.title}"></h1><p style="${s.subtitle}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>`);
+  out.push(`<td style="vertical-align:middle;text-align:right"><p style="${s.subtitle}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>`);
   out.push("</tr></table>");
   out.push("</div>");
   out.push(`<div style="${s.accent}"></div>`);
+
+  // Body
   out.push(`<div style="${s.inner}">`);
   out.push(`<h2 style="${s.h1}">Ihr individuelles Angebot</h2>`);
 
-  // Kundenadresse direkt unter der Überschrift
-  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 0;margin:8px 0 12px 0">`);
+  // Kundenadresse direkt unter H1 (bündig, optisch luftiger)
+  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:14px 18px;margin:8px 0 18px 0">`);
   out.push(`<p style="${s.p};margin:0 0 4px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>`);
   if (customer.contact) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>`);
   if (address) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(address)}</p>`);
   if (customer.email) out.push(`<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>`);
   out.push("</div>");
 
-  // Begrüßung (eigene Zeile) + Intro
-  out.push(`<p style="font-size:15px;color:#333;margin:0 0 6px 0"><strong>${escapeHtml(greeting(customer))},</strong></p>`);
-  out.push(`<p style="${s.p};font-size:15px;line-height:1.6;margin-top:0">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>`);
+  // Begrüßung (eigene Zeile)
+  out.push(`<p style="${s.p}"><strong>${escapeHtml(greet)},</strong></p>`);
+  // Introtext – MEHR ABSTAND unten
+  out.push(`<p style="${s.p};margin-bottom:14px">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>`);
 
-  // Warum xVoice UC (hell)
-  out.push(`<table width="100%" style="border-collapse:collapse;margin:14px 0 12px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden"><tr>`);
-  out.push(`<td style="padding:18px;vertical-align:top"><div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div><ul style="margin:0;padding:0 0 0 18px;color:#333"><li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li><li style="${s.li}"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li><li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li><li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li></ul></td>`);
-  out.push(`<td style="padding:0;vertical-align:bottom;width:280px"><img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" /></td>`);
+  // Warum xVoice UC — deutlich mehr Luft: margin-top:28, margin-bottom:24
+  out.push(`<table width="100%" style="border-collapse:collapse;margin:28px 0 24px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden"><tr>`);
+  out.push(`<td style="padding:22px;vertical-align:top"><div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:10px"><strong>Warum xVoice UC?</strong></div><ul style="margin:0;padding:0 0 0 18px;color:#333"><li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li><li style="${s.li}"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li><li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li><li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li></ul></td>`);
+  out.push(`<td style="padding:0 20px 0 0;vertical-align:bottom;width:280px"><img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" /></td>`);
   out.push("</tr></table>");
 
-  // Positionen
-  out.push(`<table width="100%" style="border-collapse:collapse;margin-top:14px"><thead><tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr></thead><tbody>`);
+  // Positionen — noch mehr Luft davor: margin-top:26
+  out.push(`<table width="100%" style="border-collapse:collapse;margin-top:26px"><thead><tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr></thead><tbody>`);
   for (const li of lineItems) {
     const desc = li.desc ? ` · ${escapeHtml(li.desc)}` : "";
     out.push(`<tr><td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="${s.small}">${li.sku}${desc}</div></td><td style="${s.td}">${li.quantity}</td><td style="${s.td}">${formatMoney(li.price)}</td><td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td></tr>`);
@@ -193,8 +206,8 @@ function buildEmailHtml(opts: {
   out.push(`<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap"><a href="#" style="${s.btn}">Jetzt bestellen</a><a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a></div>`);
   out.push(`<p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>`);
 
-  // Grußformel + Sales Signatur (optional)
-  out.push(`<p style="${s.p};margin-top:12px">Mit freundlichen Grüßen</p>`);
+  // Gruß + Sales-Signatur optional
+  out.push(`<p style="${s.p};margin-top:14px">Mit freundlichen Grüßen</p>`);
   if (sales && (sales.name || sales.phone || sales.email)) {
     if (sales.name) out.push(`<p style="${s.p}"><strong>${escapeHtml(sales.name)}</strong></p>`);
     if (sales.phone) out.push(`<p style="${s.small}">Tel. ${escapeHtml(sales.phone)}</p>`);
@@ -202,18 +215,18 @@ function buildEmailHtml(opts: {
   }
 
   // Abstand zwischen Sales und CEO Block erhöht
-  out.push('<div style="height:22px"></div>');
+  out.push('<div style="height:24px"></div>');
 
   // CEO Note am Ende
-  out.push('<table width="100%" style="border-collapse:collapse;margin:8px 0 0 0"><tr>');
-  out.push(`<td style="vertical-align:top;width:80px;padding:0 12px 0 0"><img src="${CEO.photoUrl}" alt="${CEO.name}" style="display:block;width:80px;height:80px;object-fit:cover;border:1px solid #eee;border-radius:0" /></td>`);
+  out.push('<table width="100%" style="border-collapse:collapse;margin:6px 0 0 0"><tr>');
+  out.push(`<td style="vertical-align:top;width:84px;padding:0 12px 0 0"><img src="${CEO.photoUrl}" alt="${CEO.name}" style="display:block;width:84px;height:84px;object-fit:cover;border:1px solid #eee;border-radius:0" /></td>`);
   out.push('<td style="vertical-align:top">');
-  out.push('<div style="font-size:14px;color:#222;line-height:1.55">„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“</div>');
-  out.push(`<div style="margin-top:8px"><img src="${CEO.signatureUrl}" alt="Unterschrift ${CEO.name}" style="display:block;max-width:160px;width:100%;opacity:0.9" /><div style="font-size:12px;color:#555;margin-top:2px"><strong>${CEO.name}</strong> · ${CEO.title}</div></div>`);
+  out.push('<div style="font-size:14px;color:#222;line-height:1.6">„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“</div>');
+  out.push(`<div style="margin-top:10px"><img src="${CEO.signatureUrl}" alt="Unterschrift ${CEO.name}" style="display:block;max-width:170px;width:100%;opacity:0.9" /><div style="font-size:12px;color:#555;margin-top:2px"><strong>${CEO.name}</strong> · ${CEO.title}</div></div>`);
   out.push("</td></tr></table>");
 
   // Firmenfooter
-  out.push(`<div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee"><p style="${'font-size:12px;color:#555;margin:0 0 4px 0;font-weight:bold'}">${COMPANY.legalName}</p><p style="${'font-size:12px;color:#444;margin:0'}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p><p style="${'font-size:12px;color:#444;margin:0'}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p></div>`);
+  out.push(`<div style="margin-top:20px;padding-top:12px;border-top:1px solid #eee"><p style="font-size:12px;color:#555;margin:0 0 4px 0;font-weight:bold">${COMPANY.legalName}</p><p style="font-size:12px;color:#444;margin:0">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p><p style="font-size:12px;color:#444;margin:0">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p></div>`);
 
   out.push("</div>"); // inner
   out.push("</div>"); // card
@@ -222,12 +235,13 @@ function buildEmailHtml(opts: {
   return out.join("");
 }
 
-// ===== SMALL UI PARTS =====
+// ====== SMALL UI PARTS ======
 function Header() {
   return (
     <div className="flex items-center justify-between gap-4 p-6 rounded-2xl shadow-sm" style={{ background: BRAND.headerBg, color: BRAND.headerFg }}>
       <div className="flex items-center gap-6">
-        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-16 w-16 object-contain" />
+        {/* Größeres Logo in der App */}
+        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-24 w-24 object-contain" />
       </div>
       <div className="text-sm" style={{ color: "#d1d5db" }}>Stand {todayIso()}</div>
     </div>
@@ -253,7 +267,7 @@ function ProductRow(
   { item: typeof CATALOG[number]; qty: number; onQty: (v: number) => void; readOnly?: boolean; helper?: string; }
 ) {
   return (
-    <div className="grid grid-cols-[minmax(180px,1fr)_80px_180px_100px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(220px,1fr)_120px_180px_120px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">{item.sku} · {item.desc}</div>
@@ -270,7 +284,7 @@ function ProductRow(
             className="w-28"
             disabled={!!readOnly}
           />
-          <span className="text-xs text-muted-foreground">/Monat</span>
+          <span className="text-xs text-muted-foreground">{item.unit || "/Monat"}</span>
         </div>
         {helper && <div className="text-[11px] text-muted-foreground mt-1">{helper}</div>}
       </div>
@@ -300,18 +314,19 @@ function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; disco
   );
 }
 
-// ===== PAGE =====
+// ====== PAGE ======
 export default function Page() {
   // Mengen
   const [qty, setQty] = useState<Record<string, number>>(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
+  const serviceQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
+
   // Rabatt & USt
   const [discountPct, setDiscountPct] = useState(0);
   const vatRate = 0.19;
-  // XVPS = Summe der drei Lizenztypen
-  const serviceQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
 
   // Kunde
   const [customer, setCustomer] = useState<Customer>({ salutation: "Herr", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+
   // Vertrieb / Versand
   const [salesName, setSalesName] = useState("");
   const [salesPhone, setSalesPhone] = useState("");
@@ -323,7 +338,7 @@ export default function Page() {
     return CATALOG
       .map((p) => {
         const quantity = p.sku === "XVPS" ? serviceQty : (qty[p.sku] || 0);
-        return { sku: p.sku, name: p.name, price: p.price, desc: p.desc, quantity, total: p.price * quantity } as LineItem;
+        return { sku: p.sku, name: p.name, price: p.price, unit: p.unit, desc: p.desc, quantity, total: p.price * quantity } as LineItem;
       })
       .filter((li) => li.quantity > 0);
   }, [qty, serviceQty]);
@@ -333,7 +348,10 @@ export default function Page() {
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
   const totals = { subtotal, discountPct, discountAmount, netAfterDiscount, vat: netAfterDiscount * vatRate, gross: netAfterDiscount * (1 + vatRate) } as const;
 
-  const offerHtml = useMemo(() => buildEmailHtml({ customer, lineItems, subtotal, vatRate, discountPct, sales: { name: salesName, email: salesEmail, phone: salesPhone } }), [customer, lineItems, subtotal, vatRate, discountPct, salesName, salesEmail, salesPhone]);
+  const offerHtml = useMemo(
+    () => buildEmailHtml({ customer, lineItems, subtotal, vatRate, discountPct, sales: { name: salesName, email: salesEmail, phone: salesPhone } }),
+    [customer, lineItems, subtotal, vatRate, discountPct, salesName, salesEmail, salesPhone]
+  );
 
   // UX State
   const [sending, setSending] = useState(false);
@@ -445,7 +463,7 @@ export default function Page() {
         }
       >
         <div className="grid grid-cols-1 gap-2">
-          <div className="grid grid-cols-[minmax(180px,1fr)_80px_180px_100px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+          <div className="grid grid-cols-[minmax(220px,1fr)_120px_180px_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
             <div>Preis</div>
             <div>Menge</div>
