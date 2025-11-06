@@ -30,7 +30,7 @@ export type Customer = {
   notes: string;
 };
 
-type LineItem = { sku: string; name: string; price: number; quantity: number; total: number };
+type LineItem = { sku: string; name: string; price: number; desc?: string; quantity: number; total: number };
 
 // ===== BRAND / CI =====
 const BRAND = {
@@ -199,7 +199,7 @@ function buildEmailHtml(params: {
           <tbody>
             ${lineItems.map(li => `
               <tr>
-                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="${s.small}">${li.sku}</div></td>
+                <td style=\"${s.td}\"><strong>${escapeHtml(li.name)}</strong><div style=\"${s.small}\">${li.sku}${li.desc ? " · " + escapeHtml(li.desc) : ""}</div></td>
                 <td style="${s.td}">${li.quantity}</td>
                 <td style="${s.td}">${formatMoney(li.price)}</td>
                 <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
@@ -330,7 +330,17 @@ export default function Page() {
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
   // Derived
-  const lineItems: LineItem[] = useMemo(() => CATALOG.filter((p) => (qty[p.sku] || 0) > 0).map((p) => ({ sku: p.sku, name: p.name, price: p.price, quantity: qty[p.sku] || 0, total: p.price * (qty[p.sku] || 0) })), [qty]);
+  const lineItems: LineItem[] = useMemo(() =>
+    CATALOG.filter((p) => (qty[p.sku] || 0) > 0).map((p) => ({
+      sku: p.sku,
+      name: p.name,
+      price: p.price,
+      desc: p.desc,
+      quantity: qty[p.sku] || 0,
+      total: p.price * (qty[p.sku] || 0),
+    })),
+    [qty]
+  );
   const subtotal = useMemo(() => lineItems.reduce((s, li) => s + li.total, 0), [lineItems]);
   const discountAmount = Math.max(0, Math.min(100, discountPct)) / 100 * subtotal;
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
