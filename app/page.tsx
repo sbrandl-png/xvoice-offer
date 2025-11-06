@@ -286,14 +286,43 @@ export default function Page() {
           <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 mt-5">
-          <Button onClick={openPreviewNewTab} variant="secondary" className="gap-2"><Eye size={16}/> Vorschau (neuer Tab)</Button>
-          <Button onClick={async () => { const r = await safeCopyToClipboard(offerHtml); if (!r.ok) handleDownloadHtml(); }} className="gap-2" style={{ backgroundColor: BRAND.primary }}><Copy size={16}/> HTML kopieren</Button>
-          <Button onClick={handleDownloadHtml} className="gap-2" variant="outline"><Download size={16}/> HTML herunterladen</Button>
-          <Button onClick={async () => { setSending(true); setError(""); setSendOk(False); try { await postJson(EMAIL_ENDPOINT, { meta: { subject }, offerHtml, customer, lineItems, totals, recipients: [customer.email, salesEmail].filter(Boolean) }); setSendOk(True);} catch (e:any) { setError(String(e?.message||e)); } finally { setSending(False);} }} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}><Mail size={16}/> Angebot per Mail senden</Button>
-          <Button onClick={async () => { setSending(true); setError(""); setSendOk(False); try { await postJson(ORDER_ENDPOINT, { orderIntent: true, offerHtml, customer, lineItems, totals }); setSendOk(True);} catch (e:any) { setError(String(e?.message||e)); } finally { setSending(False);} }} disabled={sending} className="gap-2" variant="outline"><ShoppingCart size={16}/> Jetzt bestellen</Button>
-          <Button onClick={() => { setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))); setCustomer({ company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" }); }} variant="ghost" className="gap-2 text-red-600"><Trash2 size={16}/> Zurücksetzen</Button>
-        </div>
+<div className="flex flex-wrap items-center gap-3 mt-5">
+  <Button onClick={openPreviewNewTab} variant="secondary" className="gap-2">
+    <Eye size={16}/> Vorschau (neuer Tab)
+  </Button>
+
+  <Button
+    onClick={async () => { const r = await safeCopyToClipboard(offerHtml); if (!r.ok) handleDownloadHtml(); }}
+    className="gap-2"
+    style={{ backgroundColor: BRAND.primary }}
+  >
+    <Copy size={16}/> HTML kopieren
+  </Button>
+
+  <Button onClick={handleDownloadHtml} className="gap-2" variant="outline">
+    <Download size={16}/> HTML herunterladen
+  </Button>
+
+  {/* >>> diese beiden Zeilen sind die wichtigen Fixes <<< */}
+  <Button onClick={handleSendEmail} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}>
+    <Mail size={16}/> Angebot per Mail senden
+  </Button>
+
+  <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline">
+    <ShoppingCart size={16}/> Jetzt bestellen
+  </Button>
+
+  <Button
+    onClick={() => {
+      setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
+      setCustomer({ company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+    }}
+    variant="ghost"
+    className="gap-2 text-red-600"
+  >
+    <Trash2 size={16}/> Zurücksetzen
+  </Button>
+</div>
 
         {sendOk && (<div className="mt-3 flex items-center gap-2 text-green-700 text-sm"><Check size={16}/> Erfolgreich übermittelt.</div>)}
         {!!error && (<div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>)}
