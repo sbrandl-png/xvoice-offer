@@ -135,7 +135,7 @@ function buildEmailHtml(opts: {
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5",
     totalRow: "padding:8px 8px;font-size:13px",
-    btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`;
+    btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     btnGhost: "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
     firmH: "margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111",
     firm: "margin:0;font-size:12px;color:#444",
