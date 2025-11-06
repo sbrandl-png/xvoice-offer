@@ -162,11 +162,11 @@ function buildEmailHtml(params: {
         </p>
 
         <!-- Hero / Value Section -->
-        <table width="100%" style="border-collapse:collapse;margin:14px 0 10px 0;background:#0f1012;border-radius:12px;overflow:hidden">
+        <table width="100%" style="border-collapse:collapse;margin:14px 0 10px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden">
           <tr>
             <td style="padding:18px 18px 18px 18px;vertical-align:top">
-              <div style="color:#fff;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div>
-              <ul style="margin:0;padding:0 0 0 18px;color:#d9dbe1">
+              <div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div>
+              <ul style="margin:0;padding:0 0 0 18px;color:#333">
                 <li style="margin:0 0 6px 0">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li>
                 <li style="margin:0 0 6px 0"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li>
                 <li style="margin:0 0 6px 0">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
@@ -174,7 +174,7 @@ function buildEmailHtml(params: {
               </ul>
             </td>
             <td style="padding:0;vertical-align:bottom;width:280px">
-              <img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #2a2c31" />
+              <img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" />
             </td>
           </tr>
         </table>
@@ -186,27 +186,7 @@ function buildEmailHtml(params: {
           ${addressCustomer ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(addressCustomer)}</p>` : ""}
           ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
         </div>
-
-        <!-- CEO Note -->
-        <table width="100%" style="border-collapse:collapse;margin:10px 0 4px 0">
-          <tr>
-            <td style="vertical-align:top;width:60px;padding:0 10px 0 0">
-              <img src="${CEO.photoUrl}" alt="${CEO.name}" style="display:block;width:54px;height:54px;border-radius:50%;object-fit:cover;border:1px solid #eee" />
-            </td>
-            <td style="vertical-align:top">
-              <div style="font-size:14px;color:#222;line-height:1.55">
-                „Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
-                Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“
-              </div>
-              <div style="margin-top:8px">
-                <img src="${CEO.signatureUrl}" alt="Unterschrift ${CEO.name}" style="display:block;max-width:160px;width:100%;opacity:0.9" />
-                <div style="font-size:12px;color:#555;margin-top:2px"><strong>${CEO.name}</strong> · ${CEO.title}</div>
-              </div>
-            </td>
-          </tr>
-        </table>
-
-        <table width="100%" style="border-collapse:collapse;margin-top:14px">
+        <table width=\"100%\" style=\"border-collapse:collapse;margin-top:14px\">
           <thead>
             <tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr>
           </thead>
@@ -228,9 +208,26 @@ function buildEmailHtml(params: {
         </table>
 
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>${CEO.name}</strong><br/>${CEO.title} · xVoice UC</p>
+        $1<!-- CEO Note (am Ende) -->
+        <table width=\"100%\" style=\"border-collapse:collapse;margin:14px 0 8px 0\">
+          <tr>
+            <td style=\"vertical-align:top;width:72px;padding:0 12px 0 0\">
+              <img src=\"${CEO.photoUrl}\" alt=\"${CEO.name}\" style=\"display:block;width:72px;height:72px;object-fit:cover;border:1px solid #eee;border-radius:0\" />
+            </td>
+            <td style=\"vertical-align:top\">
+              <div style=\"font-size:14px;color:#222;line-height:1.55\">
+                „Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
+                Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“
+              </div>
+              <div style=\"margin-top:8px\">
+                <img src=\"${CEO.signatureUrl}\" alt=\"Unterschrift ${CEO.name}\" style=\"display:block;max-width:160px;width:100%;opacity:0.9\" />
+                <div style=\"font-size:12px;color:#555;margin-top:2px\"><strong>${CEO.name}</strong> · ${CEO.title}</div>
+              </div>
+            </td>
+          </tr>
+        </table>
 
-        <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
+        $2
           <p style="${s.firmH}">${COMPANY.name}</p>
           <p style="${s.firm}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
           <p style="${s.firm}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
