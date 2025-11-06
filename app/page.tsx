@@ -8,18 +8,19 @@ import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
 /**
- * app/page.tsx – xVoice Offer Builder (stable, deploy-ready)
- * - 19 % USt fix, Rabatt vor USt
- * - XVPS Menge = XVPR + XVDV + XVMO (readOnly, automatisch)
- * - Anredeauswahl (Herr/Frau) + Begrüßung eigene Zeile
- * - Kundenadresse direkt unter H1 im Angebots‑HTML
- * - Größerer Abstand: Intro ↔ Warum‑Block ↔ Positionstabelle
- * - Header nur Logo (größer), Footer mit „xVoice UC UG (Haftungsbeschränkt)“
- * - Artikeltexte stehen in der Position (unter SKU)
- * - CTAs: Jetzt bestellen & Rückfrage zum Angebot
- * - Sales‑Signatur optional über CEO‑Block; CEO‑Block am Ende
- * - Vorschau (neuer Tab), HTML‑Download, Clipboard‑Fallback
- * - POST /api/send-offer & /api/place-order inkl. 405‑Fallback (GET)
+ * app/page.tsx – xVoice Offer Builder (deploy-ready)
+ *
+ * ✓ 19 % USt fix, Rabatt vor USt
+ * ✓ XVPS Menge automatisch = XVPR + XVDV + XVMO (read-only)
+ * ✓ Anredeauswahl (Herr/Frau) + Begrüßung in eigener Zeile
+ * ✓ Kundenadresse direkt unter H1, jetzt exakt bündig mit dem Text
+ * ✓ Artikeltexte unter der SKU in der Positionsliste
+ * ✓ Mehr Luft: Intro ↔ Warum-Block ↔ Positionen
+ * ✓ Header nur Logo (größer), Footer mit „xVoice UC UG (Haftungsbeschränkt)“
+ * ✓ CTAs: Jetzt bestellen & Rückfrage zum Angebot
+ * ✓ Sales-Signatur optional vor CEO-Block (CEO-Block am Ende)
+ * ✓ Preview (neuer Tab), Download, Clipboard-Fallback
+ * ✓ POST /api/send-offer & /api/place-order inkl. 405-Fallback (GET)
  */
 
 // ====== TYPES ======
@@ -108,7 +109,7 @@ function greeting(customer: Customer) {
   return customer.salutation === "Frau" ? `Sehr geehrte Frau ${name}` : `Sehr geehrter Herr ${name}`;
 }
 
-// ====== EMAIL HTML (array-push, keine verschachtelten Backticks) ======
+// ====== EMAIL HTML (array push, kein verschachteltes Template) ======
 function buildEmailHtml(opts: {
   customer: Customer;
   lineItems: LineItem[];
@@ -132,7 +133,7 @@ function buildEmailHtml(opts: {
     card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
     header: "background:#000;color:#fff;padding:20px 22px;",
     headerTable: "width:100%;border-collapse:collapse",
-    logo: "display:block;height:72px;object-fit:contain", // größer
+    logo: "display:block;height:72px;object-fit:contain", // größer im E‑Mail Header
     subtitle: "margin:2px 0 0 0;font-size:12px;opacity:.85;color:#fff",
     accent: `height:3px;background:${BRAND.primary};`,
     inner: "padding:26px 28px 36px 28px",
@@ -170,8 +171,8 @@ function buildEmailHtml(opts: {
   out.push(`<div style="${s.inner}">`);
   out.push(`<h2 style="${s.h1}">Ihr individuelles Angebot</h2>`);
 
-  // Kundenadresse direkt unter H1 (bündig, optisch luftiger)
-  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:14px 18px;margin:8px 0 18px 0">`);
+  // Kundenadresse direkt unter H1 – exakt bündig zum Text (kein zusätzliches linkes Padding)
+  out.push(`<div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:8px 0 18px 0">`);
   out.push(`<p style="${s.p};margin:0 0 4px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>`);
   if (customer.contact) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>`);
   if (address) out.push(`<p style="${s.p};margin:0 0 4px 0">${escapeHtml(address)}</p>`);
@@ -180,16 +181,17 @@ function buildEmailHtml(opts: {
 
   // Begrüßung (eigene Zeile)
   out.push(`<p style="${s.p}"><strong>${escapeHtml(greet)},</strong></p>`);
-  // Introtext – MEHR ABSTAND unten
+
+  // Introtext – gut lesbarer Absatz
   out.push(`<p style="${s.p};margin-bottom:14px">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>`);
 
-  // Warum xVoice UC — deutlich mehr Luft: margin-top:28, margin-bottom:24
+  // Warum xVoice UC — großzügige Abstände
   out.push(`<table width="100%" style="border-collapse:collapse;margin:28px 0 24px 0;background:#f9fafb;border:1px solid #eceff3;border-radius:12px;overflow:hidden"><tr>`);
   out.push(`<td style="padding:22px;vertical-align:top"><div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:10px"><strong>Warum xVoice UC?</strong></div><ul style="margin:0;padding:0 0 0 18px;color:#333"><li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li><li style="${s.li}"><strong>Cloud in Deutschland</strong> · DSGVO‑konform</li><li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li><li style="${s.li}">Optionale <strong>4h‑SLA</strong> & priorisierter Support</li></ul></td>`);
   out.push(`<td style="padding:0 20px 0 0;vertical-align:bottom;width:280px"><img src="${PRODUCT_VISUAL.ucClientUrl}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" /></td>`);
   out.push("</tr></table>");
 
-  // Positionen — noch mehr Luft davor: margin-top:26
+  // Positionen — Luft davor
   out.push(`<table width="100%" style="border-collapse:collapse;margin-top:26px"><thead><tr><th style="${s.th}">Position</th><th style="${s.th}">Menge</th><th style="${s.th}">Einzel (netto)</th><th style="${s.th}">Summe (netto)</th></tr></thead><tbody>`);
   for (const li of lineItems) {
     const desc = li.desc ? ` · ${escapeHtml(li.desc)}` : "";
@@ -214,7 +216,7 @@ function buildEmailHtml(opts: {
     if (sales.email) out.push(`<p style="${s.small}">${escapeHtml(sales.email)}</p>`);
   }
 
-  // Abstand zwischen Sales und CEO Block erhöht
+  // Abstand zwischen Sales- und CEO-Block
   out.push('<div style="height:24px"></div>');
 
   // CEO Note am Ende
@@ -240,7 +242,7 @@ function Header() {
   return (
     <div className="flex items-center justify-between gap-4 p-6 rounded-2xl shadow-sm" style={{ background: BRAND.headerBg, color: BRAND.headerFg }}>
       <div className="flex items-center gap-6">
-        {/* Größeres Logo in der App */}
+        {/* größeres Logo in der App */}
         <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-24 w-24 object-contain" />
       </div>
       <div className="text-sm" style={{ color: "#d1d5db" }}>Stand {todayIso()}</div>
