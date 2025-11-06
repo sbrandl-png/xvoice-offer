@@ -56,7 +56,7 @@ const COMPANY = {
 // Geschäftsführer/Assets
 const CEO = {
   name: "Sebastian Brandl",
-  title: "Managing Director",
+  title: "Geschäftsführer",
   photoUrl: "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full",
   signatureUrl: "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full",
 } as const;
@@ -166,8 +166,9 @@ function buildEmailHtml(params: {
         </div>
 
         <!-- Einleitungstext (Lead) -->
-        <p style="${s.p};font-size:15px;line-height:1.6;margin-top:2px">
-          <strong>${greet}</strong>, vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>.
+        <p style="font-size:15px;color:#333;margin:0 0 6px 0"><strong>${greet},</strong></p>
+        <p style="${s.p};font-size:15px;line-height:1.6;margin-top:0">
+          vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>.
           Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen –
           sicher, skalierbar und in deutschen Rechenzentren betrieben.
         </p>
@@ -213,7 +214,8 @@ function buildEmailHtml(params: {
         </table>
 
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>${CEO.name}</strong><br/>${CEO.title} · xVoice UC</p>
+        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><br/></p>
+        <hr style="border:none;border-top:1px solid #eee;margin:16px 0 10px 0"/>
 
         <!-- CEO Note am Ende (rechteckiges Foto) -->
         <table width="100%" style="border-collapse:collapse;margin:14px 0 8px 0">
