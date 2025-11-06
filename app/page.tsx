@@ -8,27 +8,20 @@ import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
 
 /**
- * Next.js App Router — app/page.tsx (Client Component)
- * – Preview in new tab (Blob + fallback)
- * – HTML download
- * – 19% VAT fixed
- * – % discount BEFORE VAT
- * – Clean totals layout with wide spacing
- * – Sales-friendly email body (salutation, USPs, CTAs)
+ * Next.js App Router compatible — app/page.tsx (Client Component)
+ * Stable preview (new tab), stable download, 19% VAT fixed, % discount before VAT.
+ * Button handlers are browser-only and avoid SSR pitfalls.
+ *
+ * To use:
+ * 1) Create a Next.js 14+ app with the App Router, Tailwind & shadcn/ui installed.
+ * 2) Save this file as app/page.tsx. Ensure shadcn components exist under @/components/ui/*.
+ * 3) (Optional) Implement app/api/send-offer/route.ts and app/api/place-order/route.ts.
  */
 
-// ===== BRAND / CI =====
-const BRAND = {
-  name: "xVoice UC",
-  primary: "#ff4e00",
-  dark: "#43434a",
-  lightBg: "#f7f7f8",
-  headerBg: "#000000",
-  headerFg: "#ffffff",
-  logoUrl: "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
-} as const;
+// ===== BRAND =====
+$1
 
-// Firmendaten
+// Firmendaten für CI-Header & Footer
 const COMPANY = {
   name: "xVoice UC UG",
   street: "Peter-Müller-Straße 3",
@@ -37,7 +30,8 @@ const COMPANY = {
   phone: "+49 211 955 861 0",
   email: "vertrieb@xvoice-uc.de",
   web: "www.xvoice-uc.de",
-} as const;
+};
+
 
 // ===== DATA (Seite 1 – Lizenzen mtl.) =====
 const CATALOG = [
@@ -50,7 +44,6 @@ const CATALOG = [
   { sku: "XVF2M", name: "xVoice UC Fax2Mail Service", price: 0.99, unit: "/Monat", desc: "Eingehende Faxe bequem als PDF per E‑Mail (virtuelle Fax-Nebenstellen)." },
 ] as const;
 
-// Types
 type Customer = {
   company: string; contact: string; email: string; phone: string;
   street: string; zip: string; city: string; notes: string;
@@ -72,19 +65,8 @@ function escapeHtml(str: string) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-// Vertriebsfreundliche Anrede
-function salutation(contactRaw?: string) {
-  const contact = (contactRaw || "").trim();
-  if (!contact) return "Guten Tag";
-  const c = contact.replace(/\s+/g, " ");
-  const mFrau = c.match(/^frau\s+(.+)$/i);
-  if (mFrau) return `Sehr geehrte Frau ${mFrau[1]}`;
-  const mHerr = c.match(/^herr\s+(.+)$/i);
-  if (mHerr) return `Sehr geehrter Herr ${mHerr[1]}`;
-  return `Guten Tag ${c}`;
-}
 
-// ===== EMAIL HTML BUILDER =====
+// Build the offer HTML (email + preview)
 function buildEmailHtml(params: {
   customer: Customer;
   lineItems: Array<{ sku: string; name: string; price: number; quantity: number; total: number }>;
@@ -126,7 +108,6 @@ function buildEmailHtml(params: {
     .filter(Boolean)
     .join(" · ");
 
-  const greet = salutation(customer.contact);
   const calendly = "https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot";
 
   return `<!DOCTYPE html>
@@ -151,11 +132,10 @@ function buildEmailHtml(params: {
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
         <p style="${s.p}">Stand ${todayIso()} · Netto-Preise zzgl. USt.</p>
 
-        <p style="${s.p}"><strong>${greet}</strong>,</p>
-        <p style="${s.p}">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Auf Basis Ihrer Anforderungen haben wir Ihnen nachfolgend ein passgenaues Angebot zusammengestellt. Mit xVoice verbinden Sie moderne Cloud-Telefonie mit Microsoft&nbsp;Teams und führenden CRM-Systemen – flexibel skalierbar, DSGVO-konform und mit kurzen Bereitstellungszeiten.</p>
+        <p style="${s.p}"><strong>vielen Dank für Ihr Interesse an xVoice UC.</strong> Nachfolgend finden Sie Ihr maßgeschneidertes Angebot auf Basis Ihrer Anforderungen.</p>
         <ul style="padding-left:18px;margin:8px 0 12px 0">
-          <li style="${s.li}"><strong>Nahtlose Integration</strong> in Microsoft Teams & CRM/Helpdesk</li>
-          <li style="${s.li}"><strong>Cloud-Betrieb in Deutschland</strong> – DSGVO-konform</li>
+          <li style="${s.li}">Nahtlose Integration in <strong>Microsoft Teams</strong> & führende CRMs</li>
+          <li style="${s.li}"><strong>Cloud</strong>-Betrieb in deutschen Rechenzentren – DSGVO-konform</li>
           <li style="${s.li}">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
           <li style="${s.li}">Optionale <strong>4h-SLA</strong> & priorisierter Support</li>
           <li style="${s.li}">Portierung bestehender Rufnummern inklusive</li>
@@ -219,14 +199,11 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
-        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <div style="margin-top:18px">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
-          <a href="${calendly}" style="${s.btnGhost}" target="_blank" rel="noopener">Beratungstermin vereinbaren</a>
         </div>
 
         <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. der gesetzlichen Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-
-        <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><strong>Sebastian Brandl</strong><br/>Managing Director · xVoice UC</p>
 
         <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.firmH}">${COMPANY.name}</p>
@@ -239,8 +216,137 @@ function buildEmailHtml(params: {
 </body>
 </html>`;
 }
+        </div>
 
-// ===== UI PARTS =====
+        <!-- Positionen -->
+        <table width=\"100%\" style=\"border-collapse:collapse;margin-top:14px\">
+          <thead>
+            <tr>
+              <th style=\"${s.th}\">Position</th>
+              <th style=\"${s.th}\">Menge</th>
+              <th style=\"${s.th}\">Einzel (netto)</th>
+              <th style=\"${s.th}\">Summe (netto)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${lineItems.map(li => `
+              <tr>
+                <td style=\"${s.td}\"><strong>${escapeHtml(li.name)}</strong><div style=\"${s.small}\">${li.sku}</div></td>
+                <td style=\"${s.td}\">${li.quantity}</td>
+                <td style=\"${s.td}\">${formatMoney(li.price)}</td>
+                <td style=\"${s.td}\"><strong>${formatMoney(li.total)}</strong></td>
+              </tr>
+            `).join("")}
+            <tr>
+              <td colspan=\"2\"></td>
+              <td align=\"right\" style=\"${s.totalRow}\">Zwischensumme (netto)</td>
+              <td style=\"${s.totalRow}\"><strong>${formatMoney(subtotal)}</strong></td>
+            </tr>
+            ${discountAmount > 0 ? `
+            <tr>
+              <td colspan=\"2\"></td>
+              <td align=\"right\" style=\"${s.totalRow}\">Rabatt (${discountPct}%)</td>
+              <td style=\"${s.totalRow}\"><strong>−${formatMoney(discountAmount)}</strong></td>
+            </tr>` : ""}
+            <tr>
+              <td colspan=\"2\"></td>
+              <td align=\"right\" style=\"${s.totalRow}\">Zwischensumme nach Rabatt</td>
+              <td style=\"${s.totalRow}\"><strong>${formatMoney(net)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan=\"2\"></td>
+              <td align=\"right\" style=\"${s.totalRow}\">zzgl. USt. (19%)</td>
+              <td style=\"${s.totalRow}\"><strong>${formatMoney(vat)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan=\"2\"></td>
+              <td align=\"right\" style=\"${s.totalRow}\"><strong>Bruttosumme</strong></td>
+              <td style=\"${s.totalRow}\"><strong>${formatMoney(gross)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- CTA -->
+        <div style=\"margin-top:18px\">
+          <a href=\"#\" style=\"${s.btn}\">Jetzt bestellen</a>
+        </div>
+
+        <!-- Hinweis -->
+        <p style=\"${s.small};margin-top:16px\">
+          Alle Preise in EUR netto zzgl. der gesetzlichen Umsatzsteuer. Änderungen und Irrtümer vorbehalten.
+        </p>
+
+        <!-- Firmenblock (Fuß) -->
+        <div style=\"margin-top:18px;padding-top:12px;border-top:1px solid #eee\">
+          <p style=\"${s.firmH}\">${COMPANY.name}</p>
+          <p style=\"${s.firm}\">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+          <p style=\"${s.firm}\">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+      <table width="100%" style="border-collapse:collapse;margin-top:14px">
+        <thead>
+          <tr>
+            <th style="${s.th}">Position</th>
+            <th style="${s.th}">Menge</th>
+            <th style="${s.th}">Einzel (netto)</th>
+            <th style="${s.th}">Summe (netto)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lineItems.map((li) => `<tr>
+                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="${s.small}">${li.sku}</div></td>
+                <td style="${s.td}">${li.quantity}</td>
+                <td style="${s.td}">${formatMoney(li.price)}</td>
+                <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
+              </tr>`).join("")}
+          <tr>
+            <td colspan="2"></td>
+            <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+            <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
+          </tr>
+          ${discountAmount > 0 ? `<tr>
+            <td colspan="2"></td>
+            <td align="right" style="${s.totalRow}">Rabatt (${discountPct}%)</td>
+            <td style="${s.totalRow}"><strong>−${formatMoney(discountAmount)}</strong></td>
+          </tr>` : ""}
+          <tr>
+            <td colspan="2"></td>
+            <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
+            <td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td>
+          </tr>
+          <tr>
+            <td colspan="2"></td>
+            <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
+            <td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td>
+          </tr>
+          <tr>
+            <td colspan="2"></td>
+            <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
+            <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top:18px">
+        <a href="#" style="${s.btn}">Jetzt bestellen</a>
+      </div>
+
+      ${customer.notes ? `<p style="${s.p};margin-top:14px"><em>Hinweis:</em> ${escapeHtml(customer.notes)}</p>` : ""}
+
+      <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. der gesetzlichen Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+// ===== SMALL UI PARTS =====
 function Header() {
   return (
     <div className="flex items-center justify-between gap-4 p-6 rounded-2xl shadow-sm" style={{ background: BRAND.headerBg, color: BRAND.headerFg }}>
@@ -287,14 +393,22 @@ function ProductRow({ item, qty, onQty }: { item: typeof CATALOG[number]; qty: n
   );
 }
 
-function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; discountAmount: number; vatRate: number; }) {
+function Totals({
+  subtotal,
+  discountAmount,
+  vatRate,
+}: {
+  subtotal: number;
+  discountAmount: number;
+  vatRate: number;
+}) {
   const net = Math.max(0, subtotal - discountAmount);
   const vat = net * vatRate;
   const gross = net + vat;
   const Row = ({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) => (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
       <span className={strong ? "font-semibold" : undefined}>{label}</span>
-      <span className={("tabular-nums text-right ") + (strong ? "font-semibold" : "")}>{value}</span>
+      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>{value}</span>
     </div>
   );
   return (
@@ -307,13 +421,21 @@ function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; disco
     </div>
   );
 }
+      <div className="flex justify-between"><span>Zwischensumme nach Rabatt</span><span className="tabular-nums">{formatMoney(net)}</span></div>
+      <div className="flex justify-between"><span>zzgl. USt. (19%)</span><span className="tabular-nums">{formatMoney(vat)}</span></div>
+      {showGross && (
+        <div className="flex justify-between font-semibold text-base pt-1 border-t"><span>Bruttosumme</span><span className="tabular-nums">{formatMoney(gross)}</span></div>
+      )}
+    </div>
+  );
+}
 
 // ===== PAGE =====
 export default function Page() {
   // Quantities
   const [qty, setQty] = useState<Record<string, number>>(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
   const [vatRate] = useState(0.19); // fixed 19%
-  const [discountPct, setDiscountPct] = useState(0);
+    const [discountPct, setDiscountPct] = useState(0);
 
   // Customer
   const [customer, setCustomer] = useState<Customer>({ company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
@@ -336,44 +458,62 @@ export default function Page() {
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
-  // Helpers
+  // Helpers — created outside render JSX to avoid syntax issues
   function openPreviewNewTab() {
+    // 1) Try Blob URL (preferred)
     try {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
+      // revoke later to allow the new tab to load
       setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
       if (w) return;
     } catch {}
+    // 2) Fallback: data URL
     try {
       const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       window.open(dataUrl, "_blank", "noopener");
-    } catch (err) { setError("Vorschau blockiert: " + String(err)); }
+    } catch (err) {
+      setError("Vorschau blockiert: " + String(err));
+    }
   }
 
   function handleDownloadHtml() {
+    // 1) Blob download
     try {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `xvoice_angebot_${todayIso()}.html`; a.style.display = "none";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      a.href = url;
+      a.download = `xvoice_angebot_${todayIso()}.html`;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 0);
       return;
     } catch {}
+    // 2) Fallback: data URL
     try {
       const a = document.createElement("a");
       a.href = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
-      a.download = `xvoice_angebot_${todayIso()}.html`; a.target = "_blank"; a.rel = "noopener"; a.style.display = "none";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    } catch (err) { setError("Download blockiert: " + String(err)); }
+      a.download = `xvoice_angebot_${todayIso()}.html`;
+      a.target = "_blank";
+      a.rel = "noopener";
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      setError("Download blockiert: " + String(err));
+    }
   }
 
   async function safeCopyToClipboard(text: string) {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
-        return { ok: true as const, via: "clipboard" as const };
+        return { ok: true, via: "clipboard" } as const;
       }
     } catch {}
     try {
@@ -382,9 +522,9 @@ export default function Page() {
       document.body.appendChild(ta); ta.focus(); ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      return { ok: ok as boolean, via: "execCommand" as const };
+      return { ok, via: "execCommand" } as const;
     } catch (error) {
-      return { ok: false as const, via: "blocked" as const, error };
+      return { ok: false, via: "blocked", error } as const;
     }
   }
 
@@ -436,6 +576,25 @@ export default function Page() {
         title="1) Produkte auswählen (Seite 1 – Lizenzen mtl.)"
         action={
           <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="discount">Rabatt %</Label>
+              <Input
+                id="discount"
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                className="w-28"
+                value={discountPct}
+                onChange={(e) => setDiscountPct(Number(e.target.value || 0))}
+              />
+            </div>
+            <div className="text-xs opacity-70">USt. fest: 19%</div>
+          </div>
+        }
+      >
+              <Label htmlFor="gross">Brutto anzeigen</Label>
+            </div>
             <div className="flex items-center gap-2">
               <Label htmlFor="discount">Rabatt %</Label>
               <Input id="discount" type="number" min={0} max={100} step={0.5} className="w-28" value={discountPct} onChange={(e) => setDiscountPct(Number(e.target.value || 0))} />
