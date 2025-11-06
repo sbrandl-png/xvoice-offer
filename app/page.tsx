@@ -285,22 +285,37 @@ function Section({ title, children, action }: React.PropsWithChildren<{ title: s
   );
 }
 
-function ProductRow({ item, qty, onQty }: { item: typeof CATALOG[number]; qty: number; onQty: (v: number) => void; }) {
+function ProductRow(
+  { item, qty, onQty, readOnly, helper }:
+  { item: typeof CATALOG[number]; qty: number; onQty: (v: number) => void; readOnly?: boolean; helper?: string; }
+) {
   return (
-    <div className="grid grid-cols-[minmax(180px,1fr)_80px_120px_100px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(180px,1fr)_80px_180px_100px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">{item.sku} · {item.desc}</div>
       </div>
       <div className="text-sm font-medium tabular-nums">{formatMoney(item.price)}</div>
-      <div className="flex items-center gap-2">
-        <Input type="number" min={0} step={1} value={qty} onChange={(e) => onQty(Number(e.target.value || 0))} className="w-24" />
-        <span className="text-xs text-muted-foreground">/Monat</span>
+      <div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={0}
+            step={1}
+            value={qty}
+            onChange={(e) => onQty(Number(e.target.value || 0))}
+            className="w-28"
+            disabled={!!readOnly}
+          />
+          <span className="text-xs text-muted-foreground">/Monat</span>
+        </div>
+        {helper && <div className="text-[11px] text-muted-foreground mt-1">{helper}</div>}
       </div>
       <div className="text-right font-semibold tabular-nums">{formatMoney(item.price * qty)}</div>
     </div>
   );
 }
+
 
 function Totals({ subtotal, discountAmount, vatRate }: { subtotal: number; discountAmount: number; vatRate: number; }) {
   const net = Math.max(0, subtotal - discountAmount);
