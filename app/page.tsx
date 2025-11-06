@@ -111,103 +111,103 @@ function buildEmailHtml(params: {
     .filter(Boolean).join(" · ");
 
   return `<!DOCTYPE html>
-<html lang=\"de\">
-<head><meta charSet=\"utf-8\"/></head>
-<body style=\"${s.body}\">
-  <div style=\"${s.container}\">
-    <div style=\"${s.card}\">
+<html lang="de">
+<head><meta charSet="utf-8"/></head>
+<body style="${s.body}">
+  <div style="${s.container}">
+    <div style="${s.card}">
       <!-- CI Header -->
-      <div style=\"${s.header}\">
-        <table style=\"${s.headerTable}\">
+      <div style="${s.header}">
+        <table style="${s.headerTable}">
           <tr>
-            <td style=\"vertical-align:middle\">
-              <img src=\"${BRAND.logoUrl}\" alt=\"xVoice Logo\" style=\"${s.logo}\" />
+            <td style="vertical-align:middle">
+              <img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" />
             </td>
-            <td style=\"vertical-align:middle;text-align:right\">
-              <h1 style=\"${s.title}\">${COMPANY.name}</h1>
-              <p style=\"${s.subtitle}\">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p>
+            <td style="vertical-align:middle;text-align:right">
+              <h1 style="${s.title}">${COMPANY.name}</h1>
+              <p style="${s.subtitle}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p>
             </td>
           </tr>
         </table>
       </div>
-      <div style=\"${s.accent}\"></div>
+      <div style="${s.accent}"></div>
 
-      <div style=\"${s.inner}\">
+      <div style="${s.inner}">
         <!-- Betreff/Meta -->
-        <h2 style=\"${s.h1}\">Ihr individuelles Angebot</h2>
-        <p style=\"${s.p}\">Stand ${todayIso()} · Netto-Preise zzgl. USt.</p>
+        <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
+        <p style="${s.p}">Stand ${todayIso()} · Netto-Preise zzgl. USt.</p>
 
         <!-- Kunde -->
-        <div style=\"margin:12px 0 6px 0\">
-          <p style=\"${s.p}\"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
-          ${customer.contact ? `<p style=\"${s.p}\">${escapeHtml(customer.contact)}</p>` : ""}
-          ${addressCustomer ? `<p style=\"${s.p}\">${escapeHtml(addressCustomer)}</p>` : ""}
-          ${customer.email ? `<p style=\"${s.p}\">${escapeHtml(customer.email)}</p>` : ""}
+        <div style="margin:12px 0 6px 0">
+          <p style="${s.p}"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
+          ${customer.contact ? `<p style="${s.p}">${escapeHtml(customer.contact)}</p>` : ""}
+          ${addressCustomer ? `<p style="${s.p}">${escapeHtml(addressCustomer)}</p>` : ""}
+          ${customer.email ? `<p style="${s.p}">${escapeHtml(customer.email)}</p>` : ""}
         </div>
 
         <!-- Positionen -->
-        <table width=\"100%\" style=\"border-collapse:collapse;margin-top:14px\">
+        <table width="100%" style="border-collapse:collapse;margin-top:14px">
           <thead>
             <tr>
-              <th style=\"${s.th}\">Position</th>
-              <th style=\"${s.th}\">Menge</th>
-              <th style=\"${s.th}\">Einzel (netto)</th>
-              <th style=\"${s.th}\">Summe (netto)</th>
+              <th style="${s.th}">Position</th>
+              <th style="${s.th}">Menge</th>
+              <th style="${s.th}">Einzel (netto)</th>
+              <th style="${s.th}">Summe (netto)</th>
             </tr>
           </thead>
           <tbody>
             ${lineItems.map(li => `
               <tr>
-                <td style=\"${s.td}\"><strong>${escapeHtml(li.name)}</strong><div style=\"${s.small}\">${li.sku}</div></td>
-                <td style=\"${s.td}\">${li.quantity}</td>
-                <td style=\"${s.td}\">${formatMoney(li.price)}</td>
-                <td style=\"${s.td}\"><strong>${formatMoney(li.total)}</strong></td>
+                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="${s.small}">${li.sku}</div></td>
+                <td style="${s.td}">${li.quantity}</td>
+                <td style="${s.td}">${formatMoney(li.price)}</td>
+                <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
               </tr>
             `).join("")}
             <tr>
-              <td colspan=\"2\"></td>
-              <td align=\"right\" style=\"${s.totalRow}\">Zwischensumme (netto)</td>
-              <td style=\"${s.totalRow}\"><strong>${formatMoney(subtotal)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
             </tr>
             ${discountAmount > 0 ? `
             <tr>
-              <td colspan=\"2\"></td>
-              <td align=\"right\" style=\"${s.totalRow}\">Rabatt (${discountPct}%)</td>
-              <td style=\"${s.totalRow}\"><strong>−${formatMoney(discountAmount)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Rabatt (${discountPct}%)</td>
+              <td style="${s.totalRow}"><strong>−${formatMoney(discountAmount)}</strong></td>
             </tr>` : ""}
             <tr>
-              <td colspan=\"2\"></td>
-              <td align=\"right\" style=\"${s.totalRow}\">Zwischensumme nach Rabatt</td>
-              <td style=\"${s.totalRow}\"><strong>${formatMoney(net)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td>
             </tr>
             <tr>
-              <td colspan=\"2\"></td>
-              <td align=\"right\" style=\"${s.totalRow}\">zzgl. USt. (19%)</td>
-              <td style=\"${s.totalRow}\"><strong>${formatMoney(vat)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td>
             </tr>
             <tr>
-              <td colspan=\"2\"></td>
-              <td align=\"right\" style=\"${s.totalRow}\"><strong>Bruttosumme</strong></td>
-              <td style=\"${s.totalRow}\"><strong>${formatMoney(gross)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
             </tr>
           </tbody>
         </table>
 
         <!-- CTA -->
-        <div style=\"margin-top:18px\">
-          <a href=\"#\" style=\"${s.btn}\">Jetzt bestellen</a>
+        <div style="margin-top:18px">
+          <a href="#" style="${s.btn}">Jetzt bestellen</a>
         </div>
 
         <!-- Hinweis -->
-        <p style=\"${s.small};margin-top:16px\">
+        <p style="${s.small};margin-top:16px">
           Alle Preise in EUR netto zzgl. der gesetzlichen Umsatzsteuer. Änderungen und Irrtümer vorbehalten.
         </p>
 
         <!-- Firmenblock (Fuß) -->
-        <div style=\"margin-top:18px;padding-top:12px;border-top:1px solid #eee\">
-          <p style=\"${s.firmH}\">${COMPANY.name}</p>
-          <p style=\"${s.firm}\">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
-          <p style=\"${s.firm}\">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+        <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
+          <p style="${s.firmH}">${COMPANY.name}</p>
+          <p style="${s.firm}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+          <p style="${s.firm}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
         </div>
       </div>
     </div>
