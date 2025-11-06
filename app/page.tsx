@@ -469,8 +469,15 @@ export default function Page() {
             <div>Menge</div>
             <div className="text-right">Summe</div>
           </div>
-          {CATALOG.map((item) => (
-            <ProductRow key={item.sku} item={item} qty={qty[item.sku] || 0} onQty={(v) => setQty((q) => ({ ...q, [item.sku]: v }))} />
+          {CATALOG.map((item) => {
+            const isService = item.sku === "XVPS";
+            const q = isService ? serviceQty : (qty[item.sku] || 0);
+            const onQ = isService ? () => {} : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: v }));
+            const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
+            return (
+              <ProductRow key={item.sku} item={item} qty={q} onQty={onQ} readOnly={isService} helper={helper} />
+            );
+          })} />
           ))}
         </div>
         <div className="mt-4 flex items-start justify-between gap-6">
