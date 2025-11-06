@@ -124,13 +124,14 @@ function buildEmailHtml(params: {
     accent: `height:3px;background:${BRAND.primary};`,
     inner: "padding:20px",
     h1: `margin:0 0 10px 0;font-size:22px;color:${BRAND.dark}`,
-    p: "margin:0 0 8px 0;font-size:14px;color:#333",
+    p: "margin:0 0 6px 0;font-size:14px;line-height:1.55;color:#333",
     li: "margin:0 0 6px 0;font-size:14px;color:#333",
     small: "font-size:12px;color:#666",
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5",
     totalRow: "padding:8px 8px;font-size:13px",
     btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
+    btnGhost: `display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     firmH: "margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111",
     firm: "margin:0;font-size:12px;color:#444",
   } as const;
@@ -158,10 +159,10 @@ function buildEmailHtml(params: {
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
 
         <!-- Kundenadresse direkt unter der Überschrift -->
-        <div style="background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;margin:6px 0 12px 0">
-          <p style="${s.p};margin:0 0 2px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
-          ${customer.contact ? `<p style="${s.p};margin:0 0 2px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
-          ${addressCustomer ? `<p style=\"${s.p};margin:0 0 2px 0\">${escapeHtml(addressCustomer)}</p>` : ""}
+        <div style=\"background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px 0;margin:8px 0 12px 0\">
+          <p style="${s.p};margin:0 0 4px 0"><strong>${escapeHtml(customer.company || "Firma unbekannt")}</strong></p>
+          ${customer.contact ? `<p style="${s.p};margin:0 0 4px 0">${escapeHtml(customer.salutation + " " + customer.contact)}</p>` : ""}
+          ${addressCustomer ? `<p style=\"${s.p};margin:0 0 4px 0\">${escapeHtml(addressCustomer)}</p>` : ""}
           ${customer.email ? `<p style="${s.p};margin:0">${escapeHtml(customer.email)}</p>` : ""}
         </div>
 
@@ -211,9 +212,12 @@ function buildEmailHtml(params: {
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td><td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td></tr>
             <tr><td colspan="2"></td><td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td><td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td></tr>
           </tbody>
-        </table>
+        $1<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+          <a href="#" style="${s.btn}">Jetzt bestellen</a>
+          <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
+        </div>
 
-        <p style="${s.small};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
+        $2>Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
         <p style="${s.p};margin-top:12px">Mit freundlichen Grüßen<br/><br/></p>
         <hr style="border:none;border-top:1px solid #eee;margin:16px 0 10px 0"/>
 
