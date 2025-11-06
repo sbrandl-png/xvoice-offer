@@ -329,6 +329,8 @@ export default function Page() {
   const [qty, setQty] = useState<Record<string, number>>(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
   const [discountPct, setDiscountPct] = useState(0);
   const vatRate = 0.19; // fixed
+  // Premium Service (XVPS) Menge = Summe aus Premium (XVPR) + Device (XVDV) + Smartphone (XVMO)
+  const serviceQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
 
   // Customer
   const [customer, setCustomer] = useState<Customer>({ salutation: "Herr", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
@@ -336,17 +338,19 @@ export default function Page() {
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
   // Derived
-  const lineItems: LineItem[] = useMemo(() =>
-    CATALOG.filter((p) => (qty[p.sku] || 0) > 0).map((p) => ({
-      sku: p.sku,
-      name: p.name,
-      price: p.price,
-      desc: p.desc,
-      quantity: qty[p.sku] || 0,
-      total: p.price * (qty[p.sku] || 0),
-    })),
-    [qty]
-  );
+  const lineItems: LineItem[] = useMemo(() => {
+    return CATALOG.map((p) => {
+      const quantity = p.sku === "XVPS" ? serviceQty : (qty[p.sku] || 0);
+      return {
+        sku: p.sku,
+        name: p.name,
+        price: p.price,
+        desc: p.desc,
+        quantity,
+        total: p.price * quantity,
+      } as LineItem;
+    }).filter((li) => li.quantity > 0);
+  }, [qty, serviceQty]);
   const subtotal = useMemo(() => lineItems.reduce((s, li) => s + li.total, 0), [lineItems]);
   const discountAmount = Math.max(0, Math.min(100, discountPct)) / 100 * subtotal;
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
