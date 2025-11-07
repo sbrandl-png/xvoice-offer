@@ -83,7 +83,7 @@ function greetingLine(c: Customer) {
   return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : c.salutation === "Herr" ? `Sehr geehrter Herr ${name},` : `Guten Tag ${name},`;
 }
 
-// ===== Email HTML Builder (matches requested layout) =====
+// ===== Email HTML Builder (zweispaltig & CEO-Foto links) =====
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
@@ -117,14 +117,14 @@ function buildEmailHtml(params: {
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
     totalRow: "padding:8px 8px;font-size:13px",
     btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
+    btnGhost: "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
   } as const;
 
-  const addressCustomer = fullCustomerAddress(customer);
   const clientImage = "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full";
   const ceoPhoto = "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full";
   const ceoSign = "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full";
 
-  const feedbackUrl = "https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot";
+  const addressCustomer = fullCustomerAddress(customer);
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -135,43 +135,43 @@ function buildEmailHtml(params: {
       <div style="${s.header}">
         <table style="${s.headerTable}">
           <tr>
-            <td style="vertical-align:middle"><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
-            <td style="vertical-align:middle;text-align:right">
-              <p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p>
-            </td>
+            <td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
+            <td style="text-align:right"><p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>
           </tr>
         </table>
       </div>
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
-        <p style="${s.p}">${escapeHtml(customer.company || "Firma unbekannt")}</p>
-
+        ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
+        ${addressCustomer ? `<p style="${s.p}">${escapeHtml(addressCustomer)}</p>` : ""}
         <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
 
-        <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
+        <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft Teams und führenden CRM‑Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
         <p style="${s.p}">Unsere Lösung bietet Ihnen nicht nur höchste Flexibilität und Ausfallsicherheit, sondern lässt sich auch vollständig in Ihre bestehende Umgebung integrieren. Auf Wunsch übernehmen wir gerne die gesamte Koordination der Umstellung, sodass Sie sich um nichts kümmern müssen.</p>
         <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams‑Call, ganz wie es Ihnen am besten passt.</p>
-
-        ${SHOW_FEEDBACK_BTN ? `<div style="margin:6px 0 16px 0"><a href="${feedbackUrl}" style="${s.btn}" target="_blank" rel="noopener">Rückmeldung vereinbaren</a></div>` : ""}
-
         <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
 
-        <div style="margin:18px 0 8px 0">
-          <h3 style="${s.h3}">Warum xVoice UC?</h3>
-          <ul style="padding-left:18px;margin:8px 0 12px 0">
-            <li style="${s.li}">Nahtlose Integration in Microsoft Teams & CRM/Helpdesk</li>
-            <li style="${s.li}">Cloud in Deutschland · DSGVO‑konform</li>
-            <li style="${s.li}">Schnelle Bereitstellung, skalierbar je Nutzer</li>
-            <li style="${s.li}">Optionale 4h‑SLA & priorisierter Support</li>
-          </ul>
-        </div>
+        <!-- Warum xVoice UC links | Client rechts -->
+        <table width="100%" style="margin:22px 0 24px 0;border-collapse:collapse">
+          <tr>
+            <td style="vertical-align:top;width:55%;padding-right:20px">
+              <h3 style="${s.h3}">Warum xVoice UC?</h3>
+              <ul style="padding-left:18px;margin:8px 0 12px 0">
+                <li style="${s.li}">Nahtlose Integration in Microsoft Teams & CRM/Helpdesk</li>
+                <li style="${s.li}">Cloud in Deutschland · DSGVO‑konform</li>
+                <li style="${s.li}">Schnelle Bereitstellung, skalierbar je Nutzer</li>
+                <li style="${s.li}">Optionale 4h‑SLA & priorisierter Support</li>
+              </ul>
+            </td>
+            <td style="vertical-align:top;width:45%">
+              <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
+            </td>
+          </tr>
+        </table>
 
-        <div style="margin:8px 0 12px 0">
-          <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;max-width:700px;border-radius:10px;border:1px solid #eee;display:block" />
-        </div>
-
-        <table width="100%" style="border-collapse:collapse;margin-top:10px">
+        <!-- Positionen -->
+        <table width="100%" style="border-collapse:collapse;margin-top:14px">
           <thead>
             <tr>
               <th style="${s.th}">Position</th>
@@ -183,7 +183,7 @@ function buildEmailHtml(params: {
           <tbody>
             ${lineItems.map(li => `
               <tr>
-                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong><div style="font-size:11px;color:#777">${li.sku}${li.desc ? ` · ${escapeHtml(li.desc)}` : ""}</div></td>
+                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong>${li.desc ? `<div style="${s.pSmall}">${escapeHtml(li.desc)}</div>` : ""}<div style="${s.pSmall}">${li.sku}</div></td>
                 <td style="${s.td}">${li.quantity}</td>
                 <td style="${s.td}">${formatMoney(li.price)}</td>
                 <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
@@ -213,24 +213,36 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
-        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <!-- CTAs unten -->
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
-          ${SHOW_INQUIRY_BTN ? `<a href="${feedbackUrl}" style="${s.btn}" target="_blank" rel="noopener">Rückfrage zum Angebot</a>` : ""}
+          <a href="#" style="${s.btnGhost}">Rückfrage zum Angebot</a>
+        </div>
+
+        <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
+          <p style="${s.p}">Mit freundlichen Grüßen</p>
+          ${salesperson.name ? `<p style="${s.p}"><strong>${escapeHtml(salesperson.name)}</strong></p>` : ""}
+          ${salesperson.phone ? `<p style="${s.pSmall}">Tel. ${escapeHtml(salesperson.phone)}</p>` : ""}
+          ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
+        </div>
+
+        <!-- CEO Block: Foto links, Text rechts -->
+        <div style="margin-top:18px;border-top:1px solid #eee;padding-top:14px;">
+          <table width="100%" style="border-collapse:collapse">
+            <tr>
+              <td style="width:120px;vertical-align:top">
+                <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:100%;max-width:120px;border-radius:10px;display:block" />
+              </td>
+              <td style="vertical-align:top;padding-left:20px">
+                <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“</em></p>
+                <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
+                <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
+              </td>
+            </tr>
+          </table>
         </div>
 
         <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
-
-        <div style="margin-top:18px">
-          <p style="${s.p}">Mit freundlichen Grüßen</p>
-          <p style="${s.p}">${salesperson.name ? `<strong>${escapeHtml(salesperson.name)}</strong><br/>` : ""}${escapeHtml(salesperson.email || COMPANY.email)}${salesperson.phone ? ` · ${escapeHtml(salesperson.phone)}` : ""}</p>
-        </div>
-
-        <div style="margin-top:20px;border-top:1px solid #eee;padding-top:16px;text-align:center">
-          <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:120px;margin-bottom:10px;display:inline-block;border-radius:10px" />
-          <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go‑Live.“</em></p>
-          <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:6px;display:inline-block" />
-          <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
-        </div>
 
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.pSmall}">${COMPANY.legal}</p>
