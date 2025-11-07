@@ -447,8 +447,8 @@ function buildEmailHtml(params: {
             : ""
         }
 
-        <div style="margin-top:16px;display:none;gap:10px;flex-wrap:wrap">
-          <a href="#" style="${s.btn}">Jetzt bestellen</a>
+        <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
+          <a href="mailto:orders@xvoice-uc.de?subject=Bestellung%20zu%20Angebot%20{{OFFER_ID}}&body=Ich%20bestelle%20das%20Angebot%20{{OFFER_ID}}.%0D%0ABitte%20best%C3%A4tigen%20Sie%20die%20Auftragsannahme.%0D%0A--%0D%0AFirma:%20{{COMPANY}}%0D%0AName:%20{{CONTACT_NAME}}%0DTelefon:%20{{PHONE}}" style="${s.btn}">Jetzt bestellen</a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
