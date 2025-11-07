@@ -30,14 +30,15 @@ export async function POST(req: Request) {
     const resend = new Resend(apiKey);
 
     // Absender/Reply-To wie gewünscht:
-    const from = `xVoice Angebote <angebot@xvoice-one.de>`;
+    const from = `Ihr xVoice ONE Angebot <angebot@xvoice-one.de>`;
     const replyTo = "vertrieb@xvoice-uc.de";
 
     const to: string[] =
       Array.isArray(recipients) && recipients.length
         ? recipients
-        : ["vertrieb@xvoice-uc.de"];
-
+        : ["vertrieb@xvoice-uc.de"],
+      bcc: "vertrieb@xvoice-uc.de","s.brandl@xvoice-uc.de";
+1
     const subject =
       (meta && meta.subject) || "Ihr individuelles xVoice UC Angebot";
 
