@@ -411,8 +411,7 @@ function buildEmailHtml(params: {
 
         <!-- Vollbreiter Divider vor CEO-Block -->
         <div style="height:2px;background:${BRAND.primary};margin:16px 0 18px 0;"></div>
-          <span style="display:inline-block;font-size:22px;line-height:1;color:${BRAND.primary};">—</span>
-        </div>
+          </div>
 
         <!-- CEO-Block -->
         <div style="margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
