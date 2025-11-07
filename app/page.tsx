@@ -120,7 +120,6 @@ const MONTHLY: CatalogItem[] = [
 ];
 
 // ===== SETUP-PAUSCHALEN (einmalig, abhängig von Summe XVPR+XVDV+XVMO) =====
-// >>>> Werte hier bei Bedarf anpassen (aus deiner Excel)
 type SetupTier = {
   sku: string;
   name: string;
@@ -140,14 +139,13 @@ function pickSetupTier(totalCoreSeats: number): SetupTier | null {
 }
 
 // ===== HARDWARE (einmalig, max. 10% Rabatt – Default) =====
-// >>>> Liste hier anpassen/erweitern; optional maxDiscountPct pro Zeile override
 const HARDWARE_MAX_DEFAULT = 10;
 const HARDWARE: CatalogItem[] = [
-  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 169.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi" },
-  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis" },
-  { sku: "JAB-E65",  name: "Jabra Engage 65 Stereo Headset", price: 219.0, billing: "one-time", unit: "Stück", desc: "DECT-Headset" },
-  { sku: "SNO-D785", name: "Snom D785 IP-Telefon", price: 159.0, billing: "one-time", unit: "Stück" },
-].map(h => ({ ...h, maxDiscountPct: typeof h.maxDiscountPct === "number" ? h.maxDiscountPct : HARDWARE_MAX_DEFAULT }));
+  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 169.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "JAB-E65",  name: "Jabra Engage 65 Stereo Headset",  price: 219.0, billing: "one-time", unit: "Stück", desc: "DECT-Headset",         maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "SNO-D785", name: "Snom D785 IP-Telefon",            price: 159.0, billing: "one-time", unit: "Stück",                              maxDiscountPct: HARDWARE_MAX_DEFAULT },
+];
 
 // ===== ENDPOINTS =====
 const EMAIL_ENDPOINT = "/api/send-offer";
@@ -207,7 +205,7 @@ function greetingLine(c: Customer) {
   return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : `Sehr geehrter Herr ${name},`;
 }
 
-// ===== EMAIL HTML BUILDER (Monatlich & Einmalig getrennt, mit Listen-/Angebotspreisen) =====
+// ===== EMAIL HTML BUILDER =====
 type BuiltRow = {
   sku: string;
   name: string;
@@ -248,7 +246,7 @@ function buildEmailHtml(params: {
     priceList: "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px",
     priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold`,
     badge: `display:inline-block;background:${BRAND.primary};color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:8px;vertical-align:middle`,
-    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
+    btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     btnGhost: "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
     hrOrange: `height:3px;background:${BRAND.primary};border:none;margin:16px 0`,
     addressBox: "background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;",
@@ -376,7 +374,7 @@ function buildEmailHtml(params: {
               </ul>
             </td>
             <td style="vertical-align:top;width:45%">
-              <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
+              <img src="https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
             </td>
           </tr>
         </table>
@@ -688,9 +686,9 @@ export default function Page() {
   function capForSku(sku: string) {
     const item = ALL.find((i) => i.sku === sku);
     return item?.maxDiscountPct ?? 0;
-  }
+    }
 
-  // MONATLICHE POSITIONEN bauen (mit Cap)
+  // MONATLICHE POSITIONEN
   const monthlyRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of MONTHLY) {
@@ -725,7 +723,7 @@ export default function Page() {
   // SETUP-PAUSCHALE (einmalig) aus Tiers
   const selectedSetup = useMemo(() => pickSetupTier(serviceAutoQty), [serviceAutoQty]);
 
-  // HARDWARE (einmalig) bauen
+  // HARDWARE (einmalig)
   const hardwareRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of HARDWARE) {
@@ -754,7 +752,7 @@ export default function Page() {
     return rows;
   }, [qty, discPct]);
 
-  // EINMALIGE POSITIONEN = Setup (falls vorhanden) + Hardware
+  // EINMALIGE POSITIONEN = Setup + Hardware
   const oneTimeRows = useMemo(() => {
     const rows: BuiltRow[] = [...hardwareRows];
     if (selectedSetup) {
@@ -774,7 +772,7 @@ export default function Page() {
     return rows;
   }, [hardwareRows, selectedSetup]);
 
-  // HTML generieren
+  // HTML
   const offerHtml = useMemo(
     () =>
       buildEmailHtml({
@@ -794,7 +792,7 @@ export default function Page() {
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
-  // Helpers Preview / Download / Copy
+  // Preview / Download / Copy
   function openPreviewNewTab() {
     try {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
@@ -903,7 +901,6 @@ export default function Page() {
     setError("");
     setSendOk(false);
     try {
-      // Totals für API (separat monatlich / einmalig)
       const mList = monthlyRows.reduce((a, r) => a + r.listTotal, 0);
       const mOffer = monthlyRows.reduce((a, r) => a + r.offerTotal, 0);
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
