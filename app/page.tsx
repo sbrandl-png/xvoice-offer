@@ -1082,7 +1082,7 @@ export default function Page() {
       <Header />
 
       <Section
-        title="Produkte auswählen xVoice UC
+        title="Produkte auswählen xVoice UC"
         action={<div className="text-xs opacity-70">USt. fest: 19%</div>}
       >
         <div className="grid grid-cols-1 gap-2">
