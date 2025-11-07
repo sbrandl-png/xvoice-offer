@@ -13,7 +13,6 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
  * - 19% VAT fixed
  * - Auto XVPS qty = XVPR + XVDV + XVMO (read-only)
  * - Per-item discounts with caps
- * - Installations-/Konfig-Pauschale (einmalig) abhängig von Summe XVPR/XVDV/XVMO
  * - Salutation select (Herr/Frau), salesperson signature
  * - Stable preview (new tab), stable download, clipboard copy fallback
  * - Email HTML per CI, with explicit discount (list vs. offer)
@@ -39,7 +38,7 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
-// ===== CATALOG (Monatlich) =====
+// ===== CATALOG =====
 const CATALOG = [
   {
     sku: "XVPR",
@@ -93,8 +92,10 @@ const CATALOG = [
   },
 ] as const;
 
+type Sku = typeof CATALOG[number]["sku"];
+
 // Rabattobergrenzen (in %)
-const DISCOUNT_CAP: Record<string, number> = {
+const DISCOUNT_CAP: Record<Sku, number> = {
   XVPR: 40,
   XVDV: 40,
   XVMO: 40,
@@ -104,25 +105,6 @@ const DISCOUNT_CAP: Record<string, number> = {
   XVPS: 0,
 };
 
-// ===== INSTALLATIONS-/KONFIG-PAUSCHALE (einmalig) =====
-// Beispiel-Mapping (bitte an Excel anpassen)
-type InstallTier = {
-  min: number; // inkl.
-  max: number; // inkl.
-  sku: string;
-  name: string;
-  price: number; // einmalig netto
-};
-
-const INSTALL_PAUSCHALEN: InstallTier[] = [
-  { min: 1,   max: 5,   sku: "XV-SETUP-S",  name: "xVoice UC Setup-Pauschale S",  price: 149.0 },
-  { min: 6,   max: 15,  sku: "XV-SETUP-M",  name: "xVoice UC Setup-Pauschale M",  price: 349.0 },
-  { min: 16,  max: 40,  sku: "XV-SETUP-L",  name: "xVoice UC Setup-Pauschale L",  price: 749.0 },
-  { min: 41,  max: 100, sku: "XV-SETUP-XL", name: "xVoice UC Setup-Pauschale XL", price: 1490.0 },
-  { min: 101, max: 9999, sku: "XV-SETUP-XXL", name: "xVoice UC Setup-Pauschale XXL", price: 2990.0 },
-];
-
-// ===== TYPES =====
 type Customer = {
   salutation: "Herr" | "Frau" | "";
   company: string;
@@ -139,19 +121,6 @@ type Salesperson = {
   name: string;
   email: string;
   phone: string;
-};
-
-// generische UI LineItem (nicht an CATALOG-SKU-Union gebunden!)
-type UiLineItem = {
-  sku: string;
-  name: string;
-  desc?: string;
-  price: number;     // tatsächlich berechneter Einzelpreis (rabattiert)
-  listUnit?: number; // optionaler Listenpreis zur Anzeige
-  unitText: string;  // "/Monat" | "/einmalig" etc.
-  quantity: number;
-  total: number;     // quantity * price
-  isOneTime?: boolean;
 };
 
 const EMAIL_ENDPOINT = "/api/send-offer";
@@ -195,14 +164,22 @@ function greetingLine(customer: Customer) {
     : `Sehr geehrter Herr ${name},`;
 }
 
-// ===== EMAIL HTML (Listen vs. Angebotspreis, breite Summenzeilen) =====
+// ===== EMAIL HTML (Listen vs. Angebot & %-Badge, stabiler CEO-Block & Footer) =====
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
-  lineItems: UiLineItem[];
+  lineItems: Array<{
+    sku: string;
+    name: string;
+    desc?: string;
+    price: number; // rabattierter Einzelpreis
+    quantity: number;
+    total: number; // rabattierte Summe
+  }>;
+  subtotal: number; // rabattiert (netto)
   vatRate: number;
 }) {
-  const { customer, salesperson, lineItems, vatRate } = params;
+  const { customer, salesperson, lineItems, subtotal, vatRate } = params;
 
   const s = {
     body:
@@ -221,17 +198,15 @@ function buildEmailHtml(params: {
     pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
     li: "margin:0 0 4px 0;font-size:14px;color:#333",
     th:
-      "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
+      "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap",
     td:
       "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
-    totalLabel:
-      "padding:8px 8px;font-size:13px;text-align:right;white-space:nowrap;width:75%",
-    totalValue:
-      "padding:8px 8px;font-size:13px;text-align:left;width:25%",
+    totalRow: "padding:8px 8px;font-size:13px;white-space:nowrap",
     priceList:
-      "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px",
-    priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold`,
-    badge: `display:inline-block;background:${BRAND.primary};color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:8px;vertical-align:middle`,
+      "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px;white-space:nowrap",
+    priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold;white-space:nowrap`,
+    badge: `display:inline-block;background:${BRAND.primary};color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:8px;vertical-align:middle;white-space:nowrap`,
+    totalsRightCell: "padding:8px 8px;font-size:13px;text-align:right;white-space:nowrap;min-width:160px",
     btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
     btnGhost:
       "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
@@ -246,26 +221,28 @@ function buildEmailHtml(params: {
 
   const addressCustomer = fullCustomerAddress(customer);
 
-  // Anzeige-Prep: Listen vs Angebot nur bei mtl. Positionen
+  // Listenpreise je SKU (Fallback: rabattierter Preis)
+  function listUnitForSku(sku: string, discountedUnit: number) {
+    const base = CATALOG.find((p) => p.sku === sku)?.price;
+    return typeof base === "number" ? base : discountedUnit;
+  }
+
   const enhanced = lineItems.map((li) => {
-    const isMonthly = li.unitText === "/Monat" && !li.isOneTime;
-    const listUnit = isMonthly && typeof li.listUnit === "number" ? li.listUnit : li.price;
+    const listUnit = listUnitForSku(li.sku, li.price);
     const listTotal = listUnit * li.quantity;
+    const offerUnit = li.price;
+    const offerTotal = li.total;
     const pct =
-      isMonthly && listUnit > 0 ? Math.round((1 - li.price / listUnit) * 100) : 0;
+      listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
     const pctClamped = Math.max(0, Math.min(100, pct));
-    return { ...li, listUnit, listTotal, pct: pctClamped };
+    const diff = Math.max(0, listTotal - offerTotal);
+    return { ...li, listUnit, listTotal, offerUnit, offerTotal, pct: pctClamped, diff };
   });
 
-  const oneTimeSum = enhanced.filter(li => li.isOneTime).reduce((s, li) => s + li.total, 0);
-  const monthlySum = enhanced.filter(li => !li.isOneTime).reduce((s, li) => s + li.total, 0);
-  const listSubtotal = enhanced
-    .filter(li => !li.isOneTime)
-    .reduce((s, li) => s + (li.listUnit * li.quantity), 0);
-  const discountTotal = Math.max(0, listSubtotal - monthlySum);
-  const net = monthlySum + oneTimeSum;
-  const vat = net * vatRate;
-  const gross = net + vat;
+  const listSubtotal = enhanced.reduce((s, r) => s + r.listTotal, 0);
+  const discountTotal = Math.max(0, listSubtotal - subtotal);
+  const vat = subtotal * vatRate;
+  const gross = subtotal + vat;
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -287,7 +264,7 @@ function buildEmailHtml(params: {
         ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
         ${
           addressCustomer
-            ? `<div style="background:#f2f3f7;border-radius:6px;padding:12px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(
+            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(
                 addressCustomer
               ).replace(/\n/g, "<br>")}</div>`
             : ""
@@ -316,14 +293,14 @@ function buildEmailHtml(params: {
           </tr>
         </table>
 
-        <!-- Positionen -->
+        <!-- Positionen mit Listen- vs. Angebotspreis -->
         <table width="100%" style="border-collapse:collapse;margin-top:6px;table-layout:auto">
           <thead>
             <tr>
               <th style="${s.th}">Position</th>
               <th style="${s.th}">Menge</th>
               <th style="${s.th}">Einzelpreis</th>
-              <th style="${s.th}">Summe</th>
+              <th style="${s.th};text-align:right;min-width:160px">Summe</th>
             </tr>
           </thead>
           <tbody>
@@ -339,59 +316,60 @@ function buildEmailHtml(params: {
                 <td style="${s.td}">${li.quantity}</td>
                 <td style="${s.td}">
                   ${
-                    li.pct > 0 && li.unitText === "/Monat" && !li.isOneTime
+                    li.pct > 0
                       ? `<span style="${s.priceList}">${formatMoney(li.listUnit)}</span>
-                         <span style="${s.priceOffer}">${formatMoney(li.price)}</span>
-                         <span style="${s.badge}">-${li.pct}%</span>
-                         <span style="${s.pSmall}"> / ${li.unitText}</span>`
-                      : `<span>${formatMoney(li.price)}</span><span style="${s.pSmall}"> / ${li.unitText}</span>`
+                         <span style="${s.priceOffer}">${formatMoney(li.offerUnit)}</span>
+                         <span style="${s.badge}">-${li.pct}%</span>`
+                      : `<span style="white-space:nowrap">${formatMoney(li.offerUnit)}</span>`
                   }
                 </td>
-                <td style="${s.td}">
+                <td style="${s.td};text-align:right;white-space:nowrap">
                   ${
-                    li.pct > 0 && li.unitText === "/Monat" && !li.isOneTime
+                    li.pct > 0
                       ? `<span style="${s.priceList}">${formatMoney(li.listTotal)}</span>
-                         <strong>${formatMoney(li.total)}</strong>`
-                      : `<strong>${formatMoney(li.total)}</strong>`
+                         <strong>${formatMoney(li.offerTotal)}</strong>`
+                      : `<strong>${formatMoney(li.offerTotal)}</strong>`
                   }
                 </td>
               </tr>`
               )
               .join("")}
 
-            <!-- Totals: Label breiter, kein Umbruch -->
+            <!-- Totals -->
             <tr>
-              <td colspan="3" style="${s.totalLabel}">Listen-Zwischensumme (mtl., netto)</td>
-              <td style="${s.totalValue}"><strong>${formatMoney(listSubtotal)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Listen-Zwischensumme (netto)</td>
+              <td style="${s.totalsRightCell}"><strong>${formatMoney(listSubtotal)}</strong></td>
             </tr>
             ${
-              (listSubtotal - monthlySum) > 0
+              discountTotal > 0
                 ? `
             <tr>
-              <td colspan="3" style="${s.totalLabel}">Rabatt gesamt (mtl.)</td>
-              <td style="${s.totalValue}"><strong>−${formatMoney(listSubtotal - monthlySum)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Rabatt gesamt</td>
+              <td style="${s.totalsRightCell}"><strong>−${formatMoney(discountTotal)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
+              <td style="${s.totalsRightCell}"><strong>${formatMoney(subtotal)}</strong></td>
             </tr>`
-                : ""
+                : `
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+              <td style="${s.totalsRightCell}"><strong>${formatMoney(subtotal)}</strong></td>
+            </tr>`
             }
             <tr>
-              <td colspan="3" style="${s.totalLabel}">Zwischensumme (mtl., netto)</td>
-              <td style="${s.totalValue}"><strong>${formatMoney(monthlySum)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
+              <td style="${s.totalsRightCell}"><strong>${formatMoney(vat)}</strong></td>
             </tr>
             <tr>
-              <td colspan="3" style="${s.totalLabel}">Zwischensumme (einmalig, netto)</td>
-              <td style="${s.totalValue}"><strong>${formatMoney(oneTimeSum)}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="3" style="${s.totalLabel}">Nettosumme gesamt</td>
-              <td style="${s.totalValue}"><strong>${formatMoney(net)}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="3" style="${s.totalLabel}">zzgl. USt. (19%)</td>
-              <td style="${s.totalValue}"><strong>${formatMoney(vat)}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="3" style="${s.totalLabel}"><strong>Bruttosumme gesamt</strong></td>
-              <td style="${s.totalValue}"><strong>${formatMoney(gross)}</strong></td>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
+              <td style="${s.totalsRightCell}"><strong>${formatMoney(gross)}</strong></td>
             </tr>
           </tbody>
         </table>
@@ -410,30 +388,40 @@ function buildEmailHtml(params: {
         </div>
 
         <!-- Vollbreiter Divider vor CEO-Block -->
-        <div style="height:2px;background:${BRAND.primary};margin:16px 0 18px 0;"></div>
-          </div>
+        <div style="height:2px;background:${BRAND.primary};margin:18px 0 16px 0;"></div>
 
-        <!-- CEO-Block -->
-        <div style="margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
-          <table width="100%" style="border-collapse:collapse">
-            <tr>
-              <td style="width:120px;vertical-align:top">
-                <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:100%;max-width:120px;border:1px solid #eee;border-radius:0;display:block" />
-              </td>
-              <td style="vertical-align:top;padding-left:20px">
-                <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go-Live.“</em></p>
-                <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
-                <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
-              </td>
-            </tr>
-          </table>
-        </div>
+        <!-- CEO-Block als table (stabil) -->
+        <table width="100%" style="border-collapse:collapse;margin:0 0 4px 0">
+          <tr>
+            <td style="width:120px;vertical-align:top;padding:0 12px 0 0">
+              <img src="${ceoPhoto}" alt="Sebastian Brandl"
+                   style="display:block;width:100%;max-width:120px;height:auto;border:1px solid #eee;border-radius:0" />
+            </td>
+            <td style="vertical-align:top;padding:0">
+              <p style="${s.p}">
+                <em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
+                Gerne begleiten wir Sie von der Planung bis zum Go-Live.“</em>
+              </p>
+              <div style="margin-top:8px">
+                <img src="https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full" alt="Unterschrift Sebastian Brandl"
+                     style="display:block;max-width:160px;width:100%;opacity:.9" />
+                <div style="font-size:12px;color:#555;margin-top:2px">
+                  <strong>Sebastian Brandl</strong> · Geschäftsführer
+                </div>
+              </div>
+            </td>
+          </tr>
+        </table>
 
-        <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
+        <p style="${s.pSmall};margin-top:16px">
+          Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.
+        </p>
 
+        <!-- Firmenfooter -->
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.pSmall}">${COMPANY.legal}</p>
           <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+          <p style="${s.pSmall}">Amtsgericht Siegburg, HRB 19078</p>
           <p style="${s.pSmall}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
           <p style="${s.pSmall}">© ${new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
         </div>
@@ -514,7 +502,7 @@ function ProductRow({
   const priceAfter = item.price * (1 - capped / 100);
 
   return (
-    <div className="grid grid-cols-[minmax(220px,1fr)_120px_minmax(260px,1fr)_140px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(220px,1fr)_120px_240px_140px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">
@@ -540,34 +528,28 @@ function ProductRow({
         )}
       </div>
 
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-4">
+        <Input
+          type="number"
+          min={0}
+          step={1}
+          value={qty}
+          onChange={(e) => onQty(Number(e.target.value || 0))}
+          className="w-24"
+          disabled={!!readOnly}
+        />
         <div className="flex items-center gap-2">
-          <Label className="text-xs opacity-70">Menge</Label>
-          <Input
-            type="number"
-            min={0}
-            step={1}
-            value={qty}
-            onChange={(e) => onQty(Number(e.target.value || 0))}
-            className="w-24"
-            disabled={!!readOnly}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Label className="text-xs opacity-70">Rabatt %</Label>
           <Input
             type="number"
             min={0}
             max={cap}
             step={0.5}
             value={capped}
-            onChange={(e) =>
-              onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))
-            }
-            className="w-28" // breiter, damit Zahlen vollständig sichtbar sind
+            onChange={(e) => onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0)) ))}
+            className="w-28"  // breitere Rabatt-Eingabe
             disabled={cap === 0}
           />
-          <span className="text-xs text-muted-foreground">max {cap}%</span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">max {cap}%</span>
         </div>
       </div>
 
@@ -589,8 +571,8 @@ function Totals({
   discountFromList,
   vatRate,
 }: {
-  subtotal: number;          // rabattierter Netto (mtl. + einmalig zusammen)
-  discountFromList: number;  // Summe der Rabatte ggü. Listenpreisen (nur mtl.)
+  subtotal: number;          // rabattierter Netto-Zwischensumme
+  discountFromList: number;  // Summe der Rabatte ggü. Listenpreisen
   vatRate: number;
 }) {
   const net = Math.max(0, subtotal);
@@ -617,7 +599,7 @@ function Totals({
   return (
     <div className="space-y-1 text-sm">
       {discountFromList > 0 && (
-        <Row label="Rabatt gesamt (mtl.)" value={"−" + formatMoney(discountFromList)} />
+        <Row label="Rabatt gesamt" value={"−" + formatMoney(discountFromList)} />
       )}
       <Row label="Zwischensumme (netto)" value={formatMoney(subtotal)} />
       <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
@@ -629,13 +611,13 @@ function Totals({
 // ===== PAGE =====
 export default function Page() {
   // Quantities
-  const [qty, setQty] = useState<Record<string, number>>(
-    Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
+  const [qty, setQty] = useState<Record<Sku, number>>(
+    Object.fromEntries(CATALOG.map((p) => [p.sku, 0])) as Record<Sku, number>
   );
 
   // Per-item discounts
-  const [discPct, setDiscPct] = useState<Record<string, number>>(
-    Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
+  const [discPct, setDiscPct] = useState<Record<Sku, number>>(
+    Object.fromEntries(CATALOG.map((p) => [p.sku, 0])) as Record<Sku, number>
   );
 
   const [vatRate] = useState(0.19); // fixed 19%
@@ -663,78 +645,44 @@ export default function Page() {
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
-  // Derived
+  // Derived quantities
   const serviceAutoQty = useMemo(
     () => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0),
     [qty]
   );
 
-  // Build monthly line items (apply per-item discounts with caps)
-  const monthlyItems: UiLineItem[] = useMemo(() => {
-    const rows: UiLineItem[] = CATALOG.filter((p) => {
+  // Build line items (apply per-item discounts with caps)
+  const lineItems = useMemo(() => {
+    const rows = CATALOG.filter((p) => {
       if (p.sku === "XVPS") return serviceAutoQty > 0;
-      return (qty[p.sku] || 0) > 0;
+      return (qty[p.sku as Sku] || 0) > 0;
     }).map((p) => {
-      const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku] || 0);
-      const cap = DISCOUNT_CAP[p.sku] ?? 0;
-      const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
+      const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku as Sku] || 0);
+      const cap = DISCOUNT_CAP[p.sku as Sku] ?? 0;
+      const pct = Math.max(0, Math.min(cap, discPct[p.sku as Sku] || 0));
       const unit = p.price * (1 - pct / 100);
       const total = unit * q;
-      return {
-        sku: p.sku,
-        name: p.name,
-        desc: p.desc,
-        price: unit,
-        listUnit: p.price,
-        unitText: p.unit,
-        quantity: q,
-        total,
-        isOneTime: false,
-      };
+      return { sku: p.sku, name: p.name, desc: p.desc, price: unit, quantity: q, total };
     });
     return rows;
   }, [qty, discPct, serviceAutoQty]);
 
-  // Add installation one-time item based on seats (XVPR+XVDV+XVMO)
-  const oneTimeItems: UiLineItem[] = useMemo(() => {
-    const seats = serviceAutoQty;
-    if (seats <= 0) return [];
-    const tier = INSTALL_PAUSCHALEN.find(t => seats >= t.min && seats <= t.max);
-    if (!tier) return [];
-    return [{
-      sku: tier.sku,
-      name: tier.name,
-      desc:
-        "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
-      price: tier.price,
-      unitText: "/einmalig",
-      quantity: 1,
-      total: tier.price,
-      isOneTime: true,
-    }];
-  }, [serviceAutoQty]);
+  // For totals, also compute list vs. discounted
+  const listSubtotal = useMemo(() => {
+    let sum = 0;
+    for (const p of CATALOG) {
+      const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku as Sku] || 0);
+      if (p.sku === "XVPS" && q <= 0) continue;
+      if (q > 0) sum += p.price * q;
+    }
+    return sum;
+  }, [qty, serviceAutoQty]);
 
-  const lineItems: UiLineItem[] = useMemo(
-    () => [...monthlyItems, ...oneTimeItems],
-    [monthlyItems, oneTimeItems]
+  const subtotal = useMemo(
+    () => lineItems.reduce((s, li) => s + li.total, 0),
+    [lineItems]
   );
-
-  const listMonthlySubtotal = useMemo(
-    () =>
-      monthlyItems.reduce((s, li) => s + (li.listUnit ?? li.price) * li.quantity, 0),
-    [monthlyItems]
-  );
-  const monthlySubtotal = useMemo(
-    () => monthlyItems.reduce((s, li) => s + li.total, 0),
-    [monthlyItems]
-  );
-  const oneTimeSubtotal = useMemo(
-    () => oneTimeItems.reduce((s, li) => s + li.total, 0),
-    [oneTimeItems]
-  );
-
-  const subtotalAll = monthlySubtotal + oneTimeSubtotal;
-  const discountFromList = Math.max(0, listMonthlySubtotal - monthlySubtotal);
+  const discountFromList = Math.max(0, listSubtotal - subtotal);
 
   const offerHtml = useMemo(
     () =>
@@ -742,9 +690,10 @@ export default function Page() {
         customer,
         salesperson,
         lineItems,
+        subtotal,
         vatRate,
       }),
-    [customer, salesperson, lineItems, vatRate]
+    [customer, salesperson, lineItems, subtotal, vatRate]
   );
 
   // UX state
@@ -872,11 +821,9 @@ export default function Page() {
         customer,
         lineItems,
         totals: {
-          monthlySubtotal,
-          oneTimeSubtotal,
-          subtotal: subtotalAll,
-          vat: subtotalAll * vatRate,
-          gross: subtotalAll * (1 + vatRate),
+          subtotal,
+          vat: subtotal * vatRate,
+          gross: subtotal * (1 + vatRate),
           discountFromList,
         },
         salesperson,
@@ -901,11 +848,9 @@ export default function Page() {
         customer,
         lineItems,
         totals: {
-          monthlySubtotal,
-          oneTimeSubtotal,
-          subtotal: subtotalAll,
-          vat: subtotalAll * vatRate,
-          gross: subtotalAll * (1 + vatRate),
+          subtotal,
+          vat: subtotal * vatRate,
+          gross: subtotal * (1 + vatRate),
           discountFromList,
         },
       });
@@ -918,8 +863,8 @@ export default function Page() {
   }
 
   function resetAll() {
-    setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
-    setDiscPct(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
+    setQty(Object.fromEntries(CATALOG.map((p) => [p.sku as Sku, 0])) as Record<Sku, number>);
+    setDiscPct(Object.fromEntries(CATALOG.map((p) => [p.sku as Sku, 0])) as Record<Sku, number>);
     setCustomer({
       salutation: "",
       company: "",
@@ -947,7 +892,7 @@ export default function Page() {
         action={<div className="text-xs opacity-70">USt. fest: 19%</div>}
       >
         <div className="grid grid-cols-1 gap-2">
-          <div className="grid grid-cols-[minmax(220px,1fr)_120px_minmax(260px,1fr)_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+          <div className="grid grid-cols-[minmax(220px,1fr)_120px_240px_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
             <div>Listenpreis</div>
             <div>Menge & Rabatt</div>
@@ -956,14 +901,14 @@ export default function Page() {
 
           {CATALOG.map((item) => {
             const isService = item.sku === "XVPS";
-            const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
+            const q = isService ? serviceAutoQty : (qty[item.sku as Sku] || 0);
             const onQ = isService
               ? () => {}
               : (v: number) =>
-                  setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
-            const cap = DISCOUNT_CAP[item.sku] ?? 0;
+                  setQty((prev) => ({ ...prev, [item.sku as Sku]: Math.max(0, Math.floor(v)) }));
+            const cap = DISCOUNT_CAP[item.sku as Sku] ?? 0;
             const onD = (v: number) =>
-              setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+              setDiscPct((prev) => ({ ...prev, [item.sku as Sku]: Math.max(0, Math.min(cap, v)) }));
             const helper = isService
               ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)"
               : undefined;
@@ -974,7 +919,7 @@ export default function Page() {
                 item={item}
                 qty={q}
                 onQty={onQ}
-                discountPct={discPct[item.sku] || 0}
+                discountPct={discPct[item.sku as Sku] || 0}
                 onDiscountPct={onD}
                 readOnly={isService}
                 helper={helper}
@@ -989,7 +934,7 @@ export default function Page() {
             Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.
           </div>
           <Totals
-            subtotal={subtotalAll}
+            subtotal={subtotal}
             discountFromList={discountFromList}
             vatRate={0.19}
           />
@@ -1125,7 +1070,9 @@ export default function Page() {
               const r = await safeCopyToClipboard(offerHtml);
               if (r.ok) setCopyOk(true);
               else {
-                setCopyError("Kopieren blockiert. HTML wird stattdessen heruntergeladen.");
+                setCopyError(
+                  "Kopieren blockiert. HTML wird stattdessen heruntergeladen."
+                );
                 handleDownloadHtml();
               }
             }}
@@ -1158,9 +1105,17 @@ export default function Page() {
             <Check size={16} /> Erfolgreich übermittelt.
           </div>
         )}
-        {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
-        {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
-        {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
+        {!!error && (
+          <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>
+        )}
+        {copyOk && (
+          <div className="mt-3 text-green-700 text-sm">
+            HTML in die Zwischenablage kopiert.
+          </div>
+        )}
+        {!!copyError && (
+          <div className="mt-3 text-amber-600 text-sm">{copyError}</div>
+        )}
       </Section>
 
       <Section title="Live-Zusammenfassung">
@@ -1169,17 +1124,17 @@ export default function Page() {
         ) : (
           <div className="space-y-2">
             {lineItems.map((li) => (
-              <div key={`${li.sku}-${li.unitText}`} className="flex justify-between text-sm">
+              <div key={li.sku} className="flex justify-between text-sm">
                 <div>
-                  {li.quantity}× {li.name} ({li.sku}) {li.isOneTime ? "(einmalig)" : "(mtl.)"}
+                  {li.quantity}× {li.name} ({li.sku})
                 </div>
                 <div className="tabular-nums">{formatMoney(li.total)}</div>
               </div>
             ))}
             <div className="pt-2 border-t">
               <Totals
-                subtotal={subtotalAll}
-                discountFromList={discountFromList}
+                subtotal={subtotal}
+                discountFromList={Math.max(0, listSubtotal - subtotal)}
                 vatRate={0.19}
               />
             </div>
