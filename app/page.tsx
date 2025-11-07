@@ -36,6 +36,8 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
+const CALENDLY = "https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot";
+
 // ===== DATA (Seite 1 – Lizenzen mtl.) =====
 const CATALOG = [
   {
@@ -315,7 +317,7 @@ function buildEmailHtml(params: {
         <!-- CTAs unten -->
         <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
-          <a href="#" style="${s.btnGhost}">Rückfrage zum Angebot</a>
+          <a href="${CALENDLY}" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
         <!-- Vertriebsgruß -->
@@ -331,7 +333,7 @@ function buildEmailHtml(params: {
         </div>
 
         <!-- CEO Block: Foto links, Text/Signatur rechts -->
-        <div style="margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
+        <div style="margin-top:18px;border-top:1px solid #eee;padding-top:14px;">
           <table width="100%" style="border-collapse:collapse">
             <tr>
               <td style="width:120px;vertical-align:top">
@@ -376,7 +378,7 @@ function Header() {
         />
         <div>
           <div className="text-2xl font-semibold" style={{ color: BRAND.headerFg }}>
-            {/* absichtlich keine Wortmarke im Header */}
+            {/* Wortmarke bewusst weggelassen */}
           </div>
           <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
             Angebots- und Bestell-Konfigurator
@@ -749,7 +751,7 @@ export default function Page() {
       <Header />
 
       <Section
-        title="Produkte auswählen (Seite 1 – Lizenzen mtl.)"
+        title="Produkte auswählen"
         action={
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
