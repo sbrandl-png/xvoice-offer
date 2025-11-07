@@ -1,81 +1,74 @@
+// app/api/send-offer/route.ts
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+export const runtime = "nodejs";           // Server-Runtime
+export const dynamic = "force-dynamic";    // keine Prerender-Versuche
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { offerHtml, subject, recipients, salesperson } = body || {};
+    const body = await req.json().catch(() => ({}));
+    const {
+      meta,
+      offerHtml,
+      customer,
+      recipients,
+      salesperson,
+      // ... weitere Felder falls nötig
+    } = body || {};
 
-    // === 1. Umgebungsvariable prüfen ===
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
+      // Kein harter Throw – sauberer 500-Response, damit der Build nicht scheitert
       return NextResponse.json(
         { ok: false, error: "Server: RESEND_API_KEY fehlt." },
         { status: 500 }
       );
     }
 
-    // === 2. E-Mail-Validierung ===
+    // Resend-Client ERST JETZT erzeugen (im Handler, nicht global)
+    const resend = new Resend(apiKey);
+
+    // Absender/Reply-To wie gewünscht:
+    const from = `xVoice Angebote <angebot@xvoice-one.de>`;
+    const replyTo = "vertrieb@xvoice-uc.de";
+
+    const to: string[] =
+      Array.isArray(recipients) && recipients.length
+        ? recipients
+        : ["vertrieb@xvoice-uc.de"];
+
+    const subject =
+      (meta && meta.subject) || "Ihr individuelles xVoice UC Angebot";
+
+    // Minimal-Validierung
     if (!offerHtml || typeof offerHtml !== "string") {
       return NextResponse.json(
-        { ok: false, error: "Fehler: Angebotsinhalt (HTML) fehlt oder ist ungültig." },
+        { ok: false, error: "offerHtml fehlt oder ist ungültig." },
         { status: 400 }
       );
     }
 
-    // === 3. Empfänger bestimmen ===
-    const to =
-      Array.isArray(recipients) && recipients.length > 0
-        ? recipients
-        : ["vertrieb@xvoice-uc.de"]; // Fallback
-
-    const from = "xVoice Angebote <angebot@xvoice-one.de>";
-    const replyTo = "vertrieb@xvoice-uc.de";
-    const bcc = ["vertrieb@xvoice-uc.de"];
-
-    const mailSubject =
-      subject || "Ihr individuelles xVoice UC Angebot";
-
-    // === 4. Resend-Client initialisieren ===
-    const resend = new Resend(apiKey);
-
-    // === 5. Versand ausführen ===
-    const result = await resend.emails.send({
+    await resend.emails.send({
       from,
       to,
-      bcc,
       reply_to: replyTo,
-      subject: mailSubject,
+      subject,
       html: offerHtml,
-      tags: [
-        { name: "project", value: "xvoice-offer" },
-        { name: "salesperson", value: salesperson || "unbekannt" },
-      ],
+      // optional:
+      // headers: { "X-Campaign": "xvoice-offer" },
     });
 
-    // === 6. Rückgabe an Frontend ===
-    return NextResponse.json({
-      ok: true,
-      id: result?.id ?? null,
-      message: "E-Mail erfolgreich übermittelt.",
-    });
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
-    console.error("❌ SEND-OFFER ERROR:", err);
     return NextResponse.json(
-      {
-        ok: false,
-        error:
-          err?.message || "Unbekannter Fehler beim E-Mail-Versand.",
-      },
+      { ok: false, error: String(err?.message || err) },
       { status: 500 }
     );
   }
 }
 
-// Optionaler GET-Handler für Healthcheck
+// Optional: GET als Fallback/Healthcheck
 export async function GET() {
   return NextResponse.json({ ok: true, info: "send-offer endpoint ready" });
 }
