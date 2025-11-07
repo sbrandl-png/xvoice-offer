@@ -546,7 +546,7 @@ function ProductRow({
             step={0.5}
             value={capped}
             onChange={(e) => onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0)) ))}
-            className="w-32"  // breitere Rabatt-Eingabe
+            className="w-28"  // breitere Rabatt-Eingabe
             disabled={cap === 0}
           />
           <span className="text-xs text-muted-foreground whitespace-nowrap">max {cap}%</span>
