@@ -148,10 +148,14 @@ const MONTHLY: CatalogItem[] = [
 // CSV-Format (optional, im public/ ablegen):
 // minLicenses,maxLicenses,sku,name,price
 const SETUP_TIERS_FALLBACK: SetupTier[] = [
-  { minLicenses: 1,  maxLicenses: 9,  sku: "XVSETUP-S",  name: "Installations- & Konfigurationspauschale (S)",  price: 149.0 },
-  { minLicenses: 10, maxLicenses: 24, sku: "XVSETUP-M",  name: "Installations- & Konfigurationspauschale (M)",  price: 249.0 },
-  { minLicenses: 25, maxLicenses: 49, sku: "XVSETUP-L",  name: "Installations- & Konfigurationspauschale (L)",  price: 399.0 },
-  { minLicenses: 50, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVSETUP-XL", name: "Installations- & Konfigurationspauschale (XL)", price: 699.0 },
+  { minLicenses: 1,  maxLicenses: 10,  sku: "XVIKS10",  name: "Installations- & Konfigurationspauschale bis 10 User",  price: 299.0 },
+  { minLicenses: 11, maxLicenses: 20, sku: "XVIKS20",  name: "Installations- & Konfigurationspauschale bis 20 User",  price: 399.0 },
+  { minLicenses: 21, maxLicenses: 50, sku: "XVIKS50",  name: "Installations- & Konfigurationspauschale bis 50 User",  price: 899.0 },
+  { minLicenses: 51, maxLicenses: 100, sku: "XVIKS100",  name: "Installations- & Konfigurationspauschale bis 100 User",  price: 1299.0 },
+  { minLicenses: 101, maxLicenses: 200, sku: "XVIKS200",  name: "Installations- & Konfigurationspauschale bis 200 User",  price: 1699.0 },
+  { minLicenses: 201, maxLicenses: 500, sku: "XVIKS500",  name: "Installations- & Konfigurationspauschale bis 500 User",  price: 1999.0 },
+  { minLicenses: 501, maxLicenses: 1000, sku: "XVIKS1000",  name: "Installations- & Konfigurationspauschale bis 1000 User",  price: 2999.0 },
+  { minLicenses: 1001, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVIKS_XXL", name: "Installations- & Konfigurationspauschale (XXL)", price: 4999.0 },
 ];
 
 // ===== HARDWARE: Fallback (falls keine /hardware.csv) =====
