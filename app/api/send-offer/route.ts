@@ -37,7 +37,7 @@ export async function POST(req: Request) {
       Array.isArray(recipients) && recipients.length
         ? recipients
         : ["vertrieb@xvoice-uc.de"],
-      bcc: "vertrieb@xvoice-uc.de","s.brandl@xvoice-uc.de";
+      bcc: ["vertrieb@xvoice-uc.de"],["s.brandl@xvoice-uc.de"];
 1
     const subject =
       (meta && meta.subject) || "Ihr individuelles xVoice UC Angebot";
