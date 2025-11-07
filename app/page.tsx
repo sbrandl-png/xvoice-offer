@@ -428,14 +428,29 @@ export default function Page() {
       a.style.display = "none"; document.body.appendChild(a); a.click(); document.body.removeChild(a);
     } catch (err) { setError("Download blockiert: " + String(err)); }
   }
-  async function safeCopyToClipboard(text: string) {
-    try { if (navigator.clipboard && window.isSecureContext) { await navigator.clipboard.writeText(text); return { ok: true as const }; } } catch {}
-    try {
-      const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly",""); ta.style.position="fixed"; ta.style.opacity="0";
-      document.body.appendChild(ta); ta.focus(); ta.select(); const ok = document.execCommand("copy"); document.body.removeChild(ta);
-      return { ok: !!ok as const };
-    } catch { return { ok: false as const }; }
+async function safeCopyToClipboard(text: string): Promise<{ ok: boolean }> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return { ok: true };
+    }
+  } catch {}
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return { ok: Boolean(copied) };
+  } catch {
+    return { ok: false };
   }
+}
   async function postJson(url: string, payload: any) {
     const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (!res.ok) throw new Error(await res.text()); return res.json().catch(() => ({}));
