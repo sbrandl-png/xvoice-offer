@@ -447,7 +447,7 @@ function buildEmailHtml(params: {
             : ""
         }
 
-        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
+        <div style="margin-top:16px;display:none;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
