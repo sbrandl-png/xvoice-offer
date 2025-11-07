@@ -138,7 +138,20 @@ type Salesperson = {
   phone: string;
 };
 
-// API endpoints (bereitstellen, wenn gewünscht)
+// Ein gemeinsamer LineItem-Typ mit freiem SKU (wichtig für die Installationsartikel)
+type UiLineItem = {
+  sku: string;
+  name: string;
+  desc?: string;
+  price: number;                 // Einzelpreis (rabattiert)
+  quantity: number;
+  total: number;
+  unitText: "/Monat" | "einmalig";
+  isOneTime: boolean;
+  listUnit: number;              // Listenpreis p. Einheit (bei mtl. = Katalogpreis, bei einmalig = price)
+};
+
+// API endpoints (optional)
 const EMAIL_ENDPOINT = "/api/send-offer";
 const ORDER_ENDPOINT = "/api/place-order";
 
@@ -184,17 +197,7 @@ function greetingLine(customer: Customer) {
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
-  lineItems: Array<{
-    sku: string;
-    name: string;
-    desc?: string;
-    price: number;     // rabattierter Einzelpreis
-    quantity: number;
-    total: number;     // rabattierte Summe
-    unitText: "/Monat" | "einmalig";
-    isOneTime: boolean;
-    listUnit: number;  // Listenpreis pro Einheit (bei mtl. Artikeln = CATALOG.price; bei einmalig = price)
-  }>;
+  lineItems: UiLineItem[];
   vatRate: number;
 }) {
   const { customer, salesperson, lineItems, vatRate } = params;
@@ -357,12 +360,12 @@ function buildEmailHtml(params: {
               <td style="${s.totalRow}"><strong>${formatMoney(listSubtotal)}</strong></td>
             </tr>
             ${
-              discountTotal > 0
+              Math.max(0, listSubtotal - monthlySum) > 0
                 ? `
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}">Rabatt gesamt (mtl.)</td>
-              <td style="${s.totalRow}"><strong>−${formatMoney(discountTotal)}</strong></td>
+              <td style="${s.totalRow}"><strong>−${formatMoney(Math.max(0, listSubtotal - monthlySum))}</strong></td>
             </tr>
             <tr>
               <td colspan="2"></td>
@@ -459,7 +462,7 @@ function Header() {
         <img
           src={BRAND.logoUrl}
           alt="xVoice Logo"
-          className="h-24 w-24 object-contain" /* größer */
+          className="h-24 w-24 object-contain"
         />
         <div>
           <div className="text-2xl font-semibold" style={{ color: BRAND.headerFg }} />
@@ -671,8 +674,8 @@ export default function Page() {
   );
 
   // Build line items (apply per-item discounts with caps) + Installationspauschale (einmalig)
-  const lineItems = useMemo(() => {
-    const rows = CATALOG
+  const lineItems: UiLineItem[] = useMemo(() => {
+    const rows: UiLineItem[] = CATALOG
       .filter((p) => {
         if (p.sku === "XVPS") return serviceAutoQty > 0;
         return (qty[p.sku] || 0) > 0;
@@ -684,16 +687,16 @@ export default function Page() {
         const unit = p.price * (1 - pct / 100);
         const total = unit * q;
         return {
-          sku: p.sku,
+          sku: String(p.sku),
           name: p.name,
           desc: p.desc,
           price: unit,               // rabattierter Einzelpreis (mtl.)
           quantity: q,
           total,                     // mtl. Summe
-          unitText: "/Monat" as const,
-          isOneTime: false as const,
+          unitText: "/Monat",
+          isOneTime: false,
           listUnit: p.price,         // für „Listen vs. Angebot“ im Mail
-        };
+        } as UiLineItem;
       });
 
     // Installations-Pauschale anhand Summe XVPR+XVDV+XVMO
@@ -701,15 +704,15 @@ export default function Page() {
     const tier = pickInstallTier(totalUsers);
     if (tier) {
       rows.push({
-        sku: tier.sku,
+        sku: tier.sku, // freier String ist durch UiLineItem erlaubt
         name: tier.name,
         desc:
           "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
-        price: tier.priceOnce,      // ein mal
+        price: tier.priceOnce,
         quantity: 1,
         total: tier.priceOnce,
-        unitText: "einmalig" as const,
-        isOneTime: true as const,
+        unitText: "einmalig",
+        isOneTime: true,
         listUnit: tier.priceOnce,
       });
     }
