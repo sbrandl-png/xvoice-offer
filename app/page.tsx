@@ -27,7 +27,7 @@ const COMPANY = {
 } as const;
 
 // Toggle for CTA links in E-Mail
-const SHOW_FEEDBACK_BTN = true; // "Rückmeldung vereinbaren"
+const SHOW_FEEDBACK_BTN = false; // "Rückmeldung vereinbaren"
 const SHOW_INQUIRY_BTN = true;  // "Rückfrage zum Angebot"
 
 // ===== Data (Seite 1 – Lizenzen mtl.) =====
@@ -116,7 +116,7 @@ function buildEmailHtml(params: {
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
     totalRow: "padding:8px 8px;font-size:13px",
-    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`;
+    btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
   } as const;
 
   const addressCustomer = fullCustomerAddress(customer);
