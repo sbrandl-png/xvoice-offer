@@ -641,7 +641,7 @@ function ProductRow({
             onChange={(e) =>
               onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))
             }
-            className="w-28"
+            className="w-36 md:w-44"
             disabled={cap === 0 || item.oneTime}
           />
           <span className="text-xs text-muted-foreground">max {cap}%</span>
