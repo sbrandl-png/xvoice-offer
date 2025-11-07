@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,13 +10,12 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
 
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
- * - 19% USt. fix
- * - Lizenzen (monatl.) mit positionsbezogenem Rabatt (Caps)
- * - Hardware (einmalig) aus CSV, Rabatt max. 10%
- * - Automatische Konfigurationspauschale (einmalig) aus CSV, abhängig von Summe (XVPR+XVDV+XVMO)
- * - Einheitliche Feldbreite für Menge und Rabatt (6.5rem)
- * - HTML-E-Mail: Monatlich vs. Einmalig getrennt; Listen- vs. Angebotspreise sichtbar
- * - Orange Volltrenner vor CEO-Block; Footer mit Amtsgericht
+ * - 19% USt
+ * - XVPS Menge = XVPR + XVDV + XVMO (read-only)
+ * - Setup-Pauschale (einmalig) per Tier abhängig von Summe (XVPR+XVDV+XVMO)
+ * - Hardware (einmalig) mit max. 10% Rabatt
+ * - Lizenzen (mtl.) mit individuellen Rabatt-Caps
+ * - E-Mail-HTML trennt Monats- und Einmalkosten und zeigt Listen vs. Angebotspreise
  */
 
 // ===== BRAND / COMPANY =====
@@ -40,75 +39,16 @@ const COMPANY = {
   register: "Amtsgericht Siegburg, HRB 19078",
 } as const;
 
-// ===== KATALOG (monatl.) =====
-const CATALOG = [
-  {
-    sku: "XVPR",
-    name: "xVoice UC Premium",
-    price: 8.95,
-    unit: "/Monat",
-    desc:
-      "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
-  },
-  {
-    sku: "XVDV",
-    name: "xVoice UC Device Only",
-    price: 3.85,
-    unit: "/Monat",
-    desc: "Lizenz für einfache Endgeräte: analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
-  },
-  {
-    sku: "XVMO",
-    name: "xVoice UC Smartphone Only",
-    price: 5.70,
-    unit: "/Monat",
-    desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
-  },
-  {
-    sku: "XVTE",
-    name: "xVoice UC Teams Integration",
-    price: 4.75,
-    unit: "/Monat",
-    desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).",
-  },
-  {
-    sku: "XVPS",
-    name: "xVoice UC Premium Service 4h SLA (je Lizenz)",
-    price: 1.35,
-    unit: "/Monat",
-    desc: "Upgrade auf 4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
-  },
-  {
-    sku: "XVCRM",
-    name: "xVoice UC Software Integration Lizenz",
-    price: 5.95,
-    unit: "/Monat",
-    desc: "Nahtlose Integration in CRM/Helpdesk & Business-Tools (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
-  },
-  {
-    sku: "XVF2M",
-    name: "xVoice UC Fax2Mail Service",
-    price: 0.99,
-    unit: "/Monat",
-    desc: "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
-  },
-] as const;
-
-// Rabattobergrenzen (in %)
-const DISCOUNT_CAP: Record<string, number> = {
-  XVPR: 40,
-  XVDV: 40,
-  XVMO: 40,
-  XVTE: 20,
-  XVCRM: 20,
-  XVF2M: 100,
-  XVPS: 0, // auto-qty, nicht rabattierbar
+// ===== TYPES =====
+type CatalogItem = {
+  sku: string;
+  name: string;
+  price: number;
+  unit: "/Monat" | "einmalig";
+  desc?: string;
+  kind: "monthly" | "hardware" | "setup" | "service";
 };
 
-// Hardware: Rabatt fix max. 10 %
-const DISCOUNT_CAP_HARDWARE = 10;
-
-// ===== TYPES =====
 type Customer = {
   salutation: "Herr" | "Frau" | "";
   company: string;
@@ -127,25 +67,128 @@ type Salesperson = {
   phone: string;
 };
 
-type HardwareRow = {
-  sku: string;
-  name: string;
-  price: number;     // Listenpreis
-  unit: string;      // z.B. "/einmalig"
-  desc: string;
+// ===== MASTER DATA (FIX IM CODE) =====
+
+// Lizenzen / monatlich
+const LICENSES: CatalogItem[] = [
+  {
+    sku: "XVPR",
+    name: "xVoice UC Premium",
+    price: 8.95,
+    unit: "/Monat",
+    desc:
+      "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
+    kind: "monthly",
+  },
+  {
+    sku: "XVDV",
+    name: "xVoice UC Device Only",
+    price: 3.85,
+    unit: "/Monat",
+    desc: "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
+    kind: "monthly",
+  },
+  {
+    sku: "XVMO",
+    name: "xVoice UC Smartphone Only",
+    price: 5.70,
+    unit: "/Monat",
+    desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
+    kind: "monthly",
+  },
+  {
+    sku: "XVTE",
+    name: "xVoice UC Teams Integration",
+    price: 4.75,
+    unit: "/Monat",
+    desc: "Native MS Teams Integration (Phone Standard Lizenz erforderlich).",
+    kind: "monthly",
+  },
+  {
+    sku: "XVPS",
+    name: "xVoice UC Premium Service 4h SLA (je Lizenz)",
+    price: 1.35,
+    unit: "/Monat",
+    desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
+    kind: "service",
+  },
+  {
+    sku: "XVCRM",
+    name: "xVoice UC Software Integration Lizenz",
+    price: 5.95,
+    unit: "/Monat",
+    desc: "Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
+    kind: "monthly",
+  },
+  {
+    sku: "XVF2M",
+    name: "xVoice UC Fax2Mail Service",
+    price: 0.99,
+    unit: "/Monat",
+    desc: "Eingehende Faxe als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
+    kind: "monthly",
+  },
+];
+
+// Rabattobergrenzen für Lizenzen (in %)
+const DISCOUNT_CAP_LICENSE: Record<string, number> = {
+  XVPR: 40,
+  XVDV: 40,
+  XVMO: 40,
+  XVTE: 20,
+  XVCRM: 20,
+  XVF2M: 100,
+  XVPS: 0, // Service qty auto, kein Rabatt
 };
 
-type SetupTier = {
-  min: number;
-  max: number | null;
-  sku: string;
-  name: string;
-  price: number;
-};
+// Hardware / einmalig (Beispiele – bei Bedarf anpassen)
+const HARDWARE: CatalogItem[] = [
+  {
+    sku: "HW-YEA-T54W",
+    name: "Yealink T54W Tischtelefon",
+    price: 139.0,
+    unit: "einmalig",
+    desc: "Business-IP-Telefon mit Farbdisplay, GigE, Bluetooth/Wi-Fi.",
+    kind: "hardware",
+  },
+  {
+    sku: "HW-SNOM-D785",
+    name: "Snom D785 Tischtelefon",
+    price: 159.0,
+    unit: "einmalig",
+    desc: "High-End IP-Phone mit großem Farbdisplay.",
+    kind: "hardware",
+  },
+  {
+    sku: "HW-JAB-ENG65S",
+    name: "Jabra Engage 65 Stereo Headset",
+    price: 199.0,
+    unit: "einmalig",
+    desc: "Schnurlos, DECT, Stereo – Callcenter-tauglich.",
+    kind: "hardware",
+  },
+  {
+    sku: "HW-GIG-N510",
+    name: "Gigaset N510 IP PRO DECT-Basis",
+    price: 79.0,
+    unit: "einmalig",
+    desc: "Professionelle DECT-Basisstation für IP-Telefonie.",
+    kind: "hardware",
+  },
+];
 
-// HTML Versand
-const EMAIL_ENDPOINT = "/api/send-offer";
-const ORDER_ENDPOINT = "/api/place-order";
+// Hardware Rabattobergrenze (global)
+const DISCOUNT_CAP_HARDWARE = 10;
+
+// Setup-Pauschalen (einmalig) abhängig von Summe XVPR+XVDV+XVMO
+// >>> Bitte bei Bedarf exakt anpassen <<<
+const SETUP_TIERS: Array<{ min: number; max: number; sku: string; name: string; price: number }> = [
+  { min: 1,  max: 5,   sku: "SETUP-T1", name: "Installations- & Konfigurationspauschale (bis 5 Nutzer)",  price: 149.0 },
+  { min: 6,  max: 10,  sku: "SETUP-T2", name: "Installations- & Konfigurationspauschale (6–10 Nutzer)",  price: 249.0 },
+  { min: 11, max: 20,  sku: "SETUP-T3", name: "Installations- & Konfigurationspauschale (11–20 Nutzer)", price: 399.0 },
+  { min: 21, max: 50,  sku: "SETUP-T4", name: "Installations- & Konfigurationspauschale (21–50 Nutzer)", price: 699.0 },
+  { min: 51, max: 100, sku: "SETUP-T5", name: "Installations- & Konfigurationspauschale (51–100 Nutzer)",price: 1199.0 },
+];
 
 // ===== UTILS =====
 function formatMoney(value: number) {
@@ -184,227 +227,86 @@ function greetingLine(customer: Customer) {
     ? `Sehr geehrte Frau ${name},`
     : `Sehr geehrter Herr ${name},`;
 }
-function safeParseNumber(inp: string) {
-  // akzeptiert "1.234,56" oder "1234.56" etc.
-  const s = (inp || "")
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  const n = Number(s);
-  return isFinite(n) ? n : NaN;
-}
 
-// CSV Loader (Hardware & Setup-Tiers)
-async function loadCsv<T = any>(path: string): Promise<string[][]> {
-  const res = await fetch(path, { cache: "no-store" });
-  if (!res.ok) return [];
-  const text = await res.text();
-  const delim = text.indexOf(";") !== -1 ? ";" : ",";
-  const rows = text
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
-    .map((l) =>
-      l
-        .split(delim)
-        .map((t) => t.replace(/^["']|["']$/g, "").trim())
-    );
-  return rows;
-}
-
-async function loadHardware(): Promise<HardwareRow[]> {
-  try {
-    const rows = await loadCsv("/hardware.csv");
-    if (rows.length <= 1) return [];
-    const hdr = rows[0].map((h) => h.toLowerCase());
-    const idx = (re: RegExp) => hdr.findIndex((h) => re.test(h));
-    const iSku = idx(/^sku|artikelnummer|artnr$/);
-    const iName = idx(/^name|bezeichnung$/);
-    const iPreis = idx(/^preis|vk|vk.*netto$/);
-    const iEinheit = idx(/^einheit|unit$/);
-    const iDesc = idx(/^beschreibung|desc$/);
-    if (iSku < 0 || iName < 0 || iPreis < 0) return [];
-    const out: HardwareRow[] = [];
-    for (let r = 1; r < rows.length; r++) {
-      const c = rows[r];
-      const price = safeParseNumber(c[iPreis] || "");
-      if (!isFinite(price)) continue;
-      out.push({
-        sku: c[iSku] || "",
-        name: c[iName] || "",
-        price,
-        unit: iEinheit >= 0 ? c[iEinheit] || "/einmalig" : "/einmalig",
-        desc: iDesc >= 0 ? c[iDesc] || "" : "",
-      });
-    }
-    return out.filter((h) => h.sku && h.name);
-  } catch {
-    return [];
-  }
-}
-
-async function loadSetupTiers(): Promise<SetupTier[]> {
-  try {
-    const rows = await loadCsv("/setup_tiers.csv");
-    if (rows.length <= 1) return [];
-    const hdr = rows[0].map((h) => h.toLowerCase());
-    const idx = (re: RegExp) => hdr.findIndex((h) => re.test(h));
-    const iMin = idx(/^min$/);
-    const iMax = idx(/^max$/);
-    const iSku = idx(/^sku|artikelnummer|artnr$/);
-    const iName = idx(/^bezeichnung|name$/);
-    const iPreis = idx(/^preis|vk|vk.*netto$/);
-    if (iMin < 0 || iSku < 0 || iName < 0 || iPreis < 0) return [];
-    const out: SetupTier[] = [];
-    for (let r = 1; r < rows.length; r++) {
-      const c = rows[r];
-      const min = Number(c[iMin] || "0");
-      const max = c[iMax] ? Number(c[iMax]) : null;
-      const price = safeParseNumber(c[iPreis] || "");
-      if (!isFinite(min) || !isFinite(price)) continue;
-      out.push({
-        min,
-        max: isFinite(Number(max)) ? Number(max) : null,
-        sku: c[iSku] || "",
-        name: c[iName] || "",
-        price,
-      });
-    }
-    out.sort((a, b) => a.min - b.min);
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-// ===== EMAIL HTML (Monatlich + Einmalig getrennt; Listen vs Angebot) =====
+// ===== EMAIL HTML BUILDER (trennt monatlich / einmalig) =====
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
-  monthly: Array<{
-    sku: string;
-    name: string;
-    desc?: string;
-    listUnit: number;
-    offerUnit: number;
-    quantity: number;
-    listTotal: number;
-    offerTotal: number;
-    pct: number;
-  }>;
-  oneTime: Array<{
-    sku: string;
-    name: string;
-    desc?: string;
-    listUnit: number;
-    offerUnit: number;
-    quantity: number;
-    listTotal: number;
-    offerTotal: number;
-    pct: number;
-    unit?: string;
-  }>;
+  monthlyItems: Array<{ sku: string; name: string; desc?: string; listUnit: number; offerUnit: number; quantity: number; listTotal: number; offerTotal: number; pct: number }>;
+  oneTimeItems: Array<{ sku: string; name: string; desc?: string; listUnit: number; offerUnit: number; quantity: number; listTotal: number; offerTotal: number; pct: number }>;
+  monthlySubtotal: number;
+  oneTimeSubtotal: number;
   vatRate: number;
 }) {
-  const { customer, salesperson, monthly, oneTime, vatRate } = params;
+  const { customer, salesperson, monthlyItems, oneTimeItems, monthlySubtotal, oneTimeSubtotal, vatRate } = params;
 
   const s = {
-    body:
-      "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
+    body: "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
     container: "max-width:720px;margin:0 auto;padding:24px",
-    card:
-      "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
+    card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
     header: `background:${BRAND.headerBg};color:${BRAND.headerFg};padding:16px 20px;`,
     headerTable: "width:100%;border-collapse:collapse",
     logo: "display:block;height:64px;object-fit:contain",
     accent: `height:3px;background:${BRAND.primary};`,
     inner: "padding:20px",
     h1: `margin:0 0 8px 0;font-size:22px;color:${BRAND.dark}`,
-    h2: `margin:14px 0 8px 0;font-size:16px;color:${BRAND.dark}`,
     h3: `margin:0 0 8px 0;font-size:16px;color:${BRAND.dark}`,
     p: "margin:0 0 10px 0;font-size:14px;color:#333;line-height:1.6",
     pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
     li: "margin:0 0 4px 0;font-size:14px;color:#333",
-    th:
-      "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
-    td:
-      "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
-    totalRow: "padding:8px 8px;font-size:13px;white-space:nowrap",
-    priceList:
-      "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px;white-space:nowrap",
-    priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold;white-space:nowrap`,
+    th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap",
+    td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
+    totalRow: "padding:10px 8px;font-size:13px;white-space:nowrap",
+    priceList: "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px",
+    priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold`,
     badge: `display:inline-block;background:${BRAND.primary};color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:8px;vertical-align:middle`,
     btn: `display:inline-block;background:${BRAND.primary};color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
-    btnGhost:
-      "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
+    btnGhost: "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
+    totalsBox: "margin-top:12px;background:#f9fafb;border:1px solid #eceff3;border-radius:10px;padding:12px",
   } as const;
 
-  const clientImage =
-    "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full";
-  const ceoPhoto =
-    "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full";
-  const ceoSign =
-    "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full";
+  const clientImage = "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full";
+  const ceoPhoto   = "https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full";
+  const ceoSign    = "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full";
 
   const addressCustomer = fullCustomerAddress(customer);
 
-  // Summen getrennt
-  const listSubtotalMonthly = monthly.reduce((s, r) => s + r.listTotal, 0);
-  const offerSubtotalMonthly = monthly.reduce((s, r) => s + r.offerTotal, 0);
-  const listSubtotalOne = oneTime.reduce((s, r) => s + r.listTotal, 0);
-  const offerSubtotalOne = oneTime.reduce((s, r) => s + r.offerTotal, 0);
+  const monthlyListSubtotal = monthlyItems.reduce((s, r) => s + r.listTotal, 0);
+  const oneTimeListSubtotal = oneTimeItems.reduce((s, r) => s + r.listTotal, 0);
+  const monthlyDiscount = Math.max(0, monthlyListSubtotal - monthlySubtotal);
+  const oneTimeDiscount = Math.max(0, oneTimeListSubtotal - oneTimeSubtotal);
 
-  const listSubtotalTotal = listSubtotalMonthly + listSubtotalOne;
-  const offerSubtotalTotal = offerSubtotalMonthly + offerSubtotalOne;
+  const net = monthlySubtotal + oneTimeSubtotal;
+  const vat = net * vatRate;
+  const gross = net + vat;
 
-  const vat = offerSubtotalTotal * vatRate;
-  const gross = offerSubtotalTotal + vat;
+  const renderItems = (items: typeof monthlyItems) =>
+    items.map((li) => {
+      const priceCell =
+        li.pct > 0
+          ? `<span style="${s.priceList}">${formatMoney(li.listUnit)}</span>
+             <span style="${s.priceOffer}">${formatMoney(li.offerUnit)}</span>
+             <span style="${s.badge}">-${li.pct}%</span>`
+          : `<span>${formatMoney(li.offerUnit)}</span>`;
+      const totalCell =
+        li.pct > 0
+          ? `<span style="${s.priceList}">${formatMoney(li.listTotal)}</span>
+             <strong>${formatMoney(li.offerTotal)}</strong>`
+          : `<strong>${formatMoney(li.offerTotal)}</strong>`;
 
-  const sectionTable = (title: string, rows: typeof monthly) => `
-        <h3 style="${s.h2}">${title}</h3>
-        <table width="100%" style="border-collapse:collapse;margin-top:6px">
-          <thead>
-            <tr>
-              <th style="${s.th}">Position</th>
-              <th style="${s.th}">Menge</th>
-              <th style="${s.th}">Einzelpreis</th>
-              <th style="${s.th}">Summe</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows
-              .map(
-                (li) => `
-              <tr>
-                <td style="${s.td}">
-                  <strong>${escapeHtml(li.name)}</strong>
-                  ${li.desc ? `<div style="${s.pSmall}">${escapeHtml(li.desc)}</div>` : ""}
-                  <div style="${s.pSmall}">${li.sku}</div>
-                </td>
-                <td style="${s.td}">${li.quantity}</td>
-                <td style="${s.td}">
-                  ${
-                    li.pct > 0
-                      ? `<span style="${s.priceList}">${formatMoney(li.listUnit)}</span>
-                         <span style="${s.priceOffer}">${formatMoney(li.offerUnit)}</span>
-                         <span style="${s.badge}">-${li.pct}%</span>`
-                      : `<span>${formatMoney(li.offerUnit)}</span>`
-                  }
-                </td>
-                <td style="${s.td}">
-                  ${
-                    li.pct > 0
-                      ? `<span style="${s.priceList}">${formatMoney(li.listTotal)}</span>
-                         <strong>${formatMoney(li.offerTotal)}</strong>`
-                      : `<strong>${formatMoney(li.offerTotal)}</strong>`
-                  }
-                </td>
-              </tr>`
-              )
-              .join("")}
-          </tbody>
-        </table>
-  `;
+      return `
+        <tr>
+          <td style="${s.td}">
+            <strong>${escapeHtml(li.name)}</strong>
+            ${li.desc ? `<div style="${s.pSmall}">${escapeHtml(li.desc)}</div>` : ""}
+            <div style="${s.pSmall}">${li.sku}</div>
+          </td>
+          <td style="${s.td}">${li.quantity}</td>
+          <td style="${s.td};white-space:nowrap">${priceCell}</td>
+          <td style="${s.td};white-space:nowrap">${totalCell}</td>
+        </tr>
+      `;
+    }).join("");
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -416,7 +318,9 @@ function buildEmailHtml(params: {
         <table style="${s.headerTable}">
           <tr>
             <td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
-            <td style="text-align:right"><p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>
+            <td style="text-align:right">
+              <p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p>
+            </td>
           </tr>
         </table>
       </div>
@@ -426,18 +330,16 @@ function buildEmailHtml(params: {
         ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
         ${
           addressCustomer
-            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(
-                addressCustomer
-              ).replace(/\n/g, "<br>")}</div>`
+            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(addressCustomer).replace(/\n/g, "<br>")}</div>`
             : ""
         }
         <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
-
         <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft Teams und führenden CRM-Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
         <p style="${s.p}">Unsere Lösung bietet Ihnen nicht nur höchste Flexibilität und Ausfallsicherheit, sondern lässt sich auch vollständig in Ihre bestehende Umgebung integrieren. Auf Wunsch übernehmen wir gerne die gesamte Koordination der Umstellung, sodass Sie sich um nichts kümmern müssen.</p>
         <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams-Call, ganz wie es Ihnen am besten passt.</p>
         <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
 
+        <!-- Warum xVoice -->
         <table width="100%" style="margin:26px 0 26px 0;border-collapse:collapse">
           <tr>
             <td style="vertical-align:top;width:55%;padding-right:20px">
@@ -450,48 +352,108 @@ function buildEmailHtml(params: {
               </ul>
             </td>
             <td style="vertical-align:top;width:45%">
-              <img src="https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
+              <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
             </td>
           </tr>
         </table>
 
-        ${monthly.length ? sectionTable("Monatliche Kosten", monthly) : ""}
-
-        ${oneTime.length ? sectionTable("Einmalige Kosten", oneTime) : ""}
-
-        <table width="100%" style="border-collapse:collapse;margin-top:10px">
+        <!-- MONATLICHE LEISTUNGEN -->
+        <h3 style="${s.h3}">Monatliche Leistungen</h3>
+        <table width="100%" style="border-collapse:collapse;margin-top:6px">
+          <thead>
+            <tr>
+              <th style="${s.th}">Position</th>
+              <th style="${s.th}">Menge</th>
+              <th style="${s.th}">Einzelpreis</th>
+              <th style="${s.th}">Summe</th>
+            </tr>
+          </thead>
           <tbody>
+            ${renderItems(monthlyItems)}
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}">Listen-Zwischensumme (netto)</td>
-              <td style="${s.totalRow}"><strong>${formatMoney(listSubtotalTotal)}</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(monthlyListSubtotal)}</strong></td>
             </tr>
             ${
-              listSubtotalTotal > offerSubtotalTotal
+              monthlyDiscount > 0
                 ? `
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}">Rabatt gesamt</td>
-              <td style="${s.totalRow}"><strong>−${formatMoney(listSubtotalTotal - offerSubtotalTotal)}</strong></td>
-            </tr>` : ""
+              <td style="${s.totalRow}"><strong>−${formatMoney(monthlyDiscount)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(monthlySubtotal)}</strong></td>
+            </tr>`
+                : `
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(monthlySubtotal)}</strong></td>
+            </tr>`
             }
-            <tr>
-              <td colspan="2"></td>
-              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt</td>
-              <td style="${s.totalRow}"><strong>${formatMoney(offerSubtotalTotal)}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="2"></td>
-              <td align="right" style="${s.totalRow}">zzgl. USt. (19%)</td>
-              <td style="${s.totalRow}"><strong>${formatMoney(vat)}</strong></td>
-            </tr>
-            <tr>
-              <td colspan="2"></td>
-              <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
-              <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
-            </tr>
           </tbody>
         </table>
+
+        <!-- EINMALIGE KOSTEN -->
+        <h3 style="${s.h3};margin-top:16px">Einmalige Kosten</h3>
+        <table width="100%" style="border-collapse:collapse;margin-top:6px">
+          <thead>
+            <tr>
+              <th style="${s.th}">Position</th>
+              <th style="${s.th}">Menge</th>
+              <th style="${s.th}">Einzelpreis</th>
+              <th style="${s.th}">Summe</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderItems(oneTimeItems)}
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Listen-Zwischensumme (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(oneTimeListSubtotal)}</strong></td>
+            </tr>
+            ${
+              oneTimeDiscount > 0
+                ? `
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Rabatt gesamt</td>
+              <td style="${s.totalRow}"><strong>−${formatMoney(oneTimeDiscount)}</strong></td>
+            </tr>
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme nach Rabatt (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(oneTimeSubtotal)}</strong></td>
+            </tr>`
+                : `
+            <tr>
+              <td colspan="2"></td>
+              <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
+              <td style="${s.totalRow}"><strong>${formatMoney(oneTimeSubtotal)}</strong></td>
+            </tr>`
+            }
+          </tbody>
+        </table>
+
+        <!-- Gesamt -->
+        <div style="${s.totalsBox}">
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>Gesamtsumme netto (monatlich + einmalig)</div>
+            <div><strong>${formatMoney(net)}</strong></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div>zzgl. USt. (19%)</div>
+            <div><strong>${formatMoney(vat)}</strong></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:12px;">
+            <div><strong>Bruttosumme</strong></div>
+            <div><strong>${formatMoney(gross)}</strong></div>
+          </div>
+        </div>
 
         <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
@@ -506,11 +468,11 @@ function buildEmailHtml(params: {
           ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
         </div>
 
-        <!-- Orange Volltrenner -->
-        <div style="height:3px;background:${BRAND.primary};margin:16px 0"></div>
+        <!-- ORANGER TRENNSTREIFEN -->
+        <div style="height:3px;background:${BRAND.primary};margin:12px 0 18px 0;"></div>
 
         <!-- CEO-Block -->
-        <div style="border-top:1px solid #eee;padding-top:14px;">
+        <div style="margin-top:0;border-top:1px solid #eee;padding-top:14px;">
           <table width="100%" style="border-collapse:collapse">
             <tr>
               <td style="width:120px;vertical-align:top">
@@ -527,6 +489,7 @@ function buildEmailHtml(params: {
 
         <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
 
+        <!-- Firmen-Footer -->
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.pSmall}">${COMPANY.legal}</p>
           <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
@@ -549,11 +512,7 @@ function Header() {
       style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
     >
       <div className="flex items-center gap-6">
-        <img
-          src={BRAND.logoUrl}
-          alt="xVoice Logo"
-          className="h-20 w-20 object-contain"
-        />
+        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-20 w-20 object-contain" />
         <div>
           <div className="text-2xl font-semibold" style={{ color: BRAND.headerFg }} />
           <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
@@ -598,23 +557,20 @@ function ProductRow({
   helper,
   cap,
 }: {
-  item: typeof CATALOG[number];
+  item: CatalogItem;
   qty: number;
   onQty: (v: number) => void;
   discountPct: number;
   onDiscountPct: (v: number) => void;
   readOnly?: boolean;
   helper?: string;
-  cap: number;
+  cap: number; // max Rabatt in %
 }) {
   const capped = Math.max(0, Math.min(cap, isFinite(discountPct) ? discountPct : 0));
   const priceAfter = item.price * (1 - capped / 100);
 
-  // feste, gleiche Breite (6.5rem) für Menge & Rabatt
-  const fieldStyle: React.CSSProperties = { width: "6.5rem" };
-
   return (
-    <div className="grid grid-cols-[minmax(220px,1fr)_110px_240px_120px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(220px,1fr)_110px_minmax(260px,1fr)_120px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">
@@ -630,10 +586,7 @@ function ProductRow({
             <span className="font-semibold" style={{ color: BRAND.primary }}>
               {formatMoney(priceAfter)}
             </span>
-            <span
-              className="ml-2 px-2 py-[2px] rounded-full text-[11px] text-white"
-              style={{ background: BRAND.primary }}
-            >
+            <span className="ml-2 px-2 py-[2px] rounded-full text-[11px] text-white" style={{ background: BRAND.primary }}>
               -{capped}%
             </span>
           </div>
@@ -647,8 +600,7 @@ function ProductRow({
           step={1}
           value={qty}
           onChange={(e) => onQty(Math.max(0, Math.floor(Number(e.target.value || 0))))}
-          className="shrink-0"
-          style={fieldStyle}
+          className="w-28"
           disabled={!!readOnly}
         />
         <div className="flex items-center gap-1">
@@ -658,14 +610,11 @@ function ProductRow({
             max={cap}
             step={0.5}
             value={capped}
-            onChange={(e) =>
-              onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))
-            }
-            className="shrink-0"
-            style={fieldStyle}
+            onChange={(e) => onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0)) ))}
+            className="w-28"
             disabled={cap === 0}
           />
-          <span className="text-xs text-muted-foreground">max {cap}%</span>
+          <span className="text-xs text-muted-foreground whitespace-nowrap">max {cap}%</span>
         </div>
       </div>
 
@@ -682,41 +631,47 @@ function ProductRow({
   );
 }
 
-function Totals({
-  subtotal,
+function TotalsBox({
+  monthlySubtotal,
+  oneTimeSubtotal,
   vatRate,
-  listSubtotal,
+  listMonthlySubtotal,
+  listOneTimeSubtotal,
 }: {
-  subtotal: number;       // Angebot netto
-  listSubtotal: number;  // Liste netto
+  monthlySubtotal: number;
+  oneTimeSubtotal: number;
   vatRate: number;
+  listMonthlySubtotal: number;
+  listOneTimeSubtotal: number;
 }) {
-  const discount = Math.max(0, listSubtotal - subtotal);
-  const vat = subtotal * vatRate;
-  const gross = subtotal + vat;
+  const discountMonthly = Math.max(0, listMonthlySubtotal - monthlySubtotal);
+  const discountOneTime = Math.max(0, listOneTimeSubtotal - oneTimeSubtotal);
+  const net = monthlySubtotal + oneTimeSubtotal;
+  const vat = net * vatRate;
+  const gross = net + vat;
 
-  const Row = ({
-    label,
-    value,
-    strong = false,
-  }: {
-    label: string;
-    value: string;
-    strong?: boolean;
-  }) => (
+  const Row = ({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) => (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
       <span className={strong ? "font-semibold" : undefined}>{label}</span>
-      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>
-        {value}
-      </span>
+      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>{value}</span>
     </div>
   );
 
   return (
     <div className="space-y-1 text-sm">
-      <Row label="Listen-Zwischensumme (netto)" value={formatMoney(listSubtotal)} />
-      {discount > 0 && <Row label="Rabatt gesamt" value={"−" + formatMoney(discount)} />}
-      <Row label="Zwischensumme nach Rabatt" value={formatMoney(subtotal)} />
+      <Row label="Listen-Zwischensumme monatlich" value={formatMoney(listMonthlySubtotal)} />
+      {discountMonthly > 0 && <Row label="Rabatt monatlich" value={"−" + formatMoney(discountMonthly)} />}
+      <Row label="Zwischensumme monatlich (netto)" value={formatMoney(monthlySubtotal)} />
+
+      <div className="h-2" />
+
+      <Row label="Listen-Zwischensumme einmalig" value={formatMoney(listOneTimeSubtotal)} />
+      {discountOneTime > 0 && <Row label="Rabatt einmalig" value={"−" + formatMoney(discountOneTime)} />}
+      <Row label="Zwischensumme einmalig (netto)" value={formatMoney(oneTimeSubtotal)} />
+
+      <div className="h-2" />
+
+      <Row label="Gesamtsumme netto" value={formatMoney(net)} />
       <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
       <Row label="Bruttosumme" value={formatMoney(gross)} strong />
     </div>
@@ -725,31 +680,19 @@ function Totals({
 
 // ===== PAGE =====
 export default function Page() {
-  // ===== MONATLICH =====
+  // Mengen
   const [qty, setQty] = useState<Record<string, number>>(
-    Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
+    Object.fromEntries([...LICENSES, ...HARDWARE].map((p) => [p.sku, 0]))
   );
+
+  // Per-Item Discounts
   const [discPct, setDiscPct] = useState<Record<string, number>>(
-    Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
+    Object.fromEntries([...LICENSES, ...HARDWARE].map((p) => [p.sku, 0]))
   );
+
   const [vatRate] = useState(0.19);
 
-  // ===== HARDWARE (einmalig) =====
-  const [hardware, setHardware] = useState<HardwareRow[]>([]);
-  const [qtyHw, setQtyHw] = useState<Record<string, number>>({});
-  const [discHw, setDiscHw] = useState<Record<string, number>>({});
-
-  useEffect(() => {
-    loadHardware().then(setHardware).catch(() => setHardware([]));
-  }, []);
-
-  // ===== SETUP-TIERS =====
-  const [setupTiers, setSetupTiers] = useState<SetupTier[]>([]);
-  useEffect(() => {
-    loadSetupTiers().then(setSetupTiers).catch(() => setSetupTiers([]));
-  }, []);
-
-  // ===== Kunde / Vertrieb =====
+  // Customer
   const [customer, setCustomer] = useState<Customer>({
     salutation: "",
     company: "",
@@ -761,145 +704,146 @@ export default function Page() {
     city: "",
     notes: "",
   });
+
+  // Salesperson
   const [salesperson, setSalesperson] = useState<Salesperson>({
     name: "",
     email: "vertrieb@xvoice-uc.de",
     phone: "",
   });
+
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
-  // ===== Ableitungen =====
+  // Auto-Menge Service (XVPS)
   const serviceAutoQty = useMemo(
     () => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0),
     [qty]
   );
 
-  // Monatlich: Zeilen (mit Caps)
-  const monthlyRows = useMemo(() => {
-    return CATALOG.filter((p) => {
-      if (p.sku === "XVPS") return serviceAutoQty > 0;
-      return (qty[p.sku] || 0) > 0;
-    }).map((p) => {
-      const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku] || 0);
-      const cap = DISCOUNT_CAP[p.sku] ?? 0;
+  // Setup-Tier ermitteln
+  const setupTier = useMemo(() => {
+    const n = serviceAutoQty;
+    return SETUP_TIERS.find(t => n >= t.min && n <= t.max) || null;
+  }, [serviceAutoQty]);
+
+  // MONATLICH: line items (mit Rabatt-Caps)
+  const monthlyItems = useMemo(() => {
+    const items: Array<{ sku: string; name: string; desc?: string; listUnit: number; offerUnit: number; quantity: number; listTotal: number; offerTotal: number; pct: number }> = [];
+
+    for (const p of LICENSES) {
+      const isService = p.sku === "XVPS";
+      const q = isService ? serviceAutoQty : (qty[p.sku] || 0);
+      if (q <= 0) continue;
+
+      const cap = DISCOUNT_CAP_LICENSE[p.sku] ?? 0;
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
       const offerUnit = p.price * (1 - pct / 100);
-      return {
-        sku: p.sku as string,
+      const listTotal = listUnit * q;
+      const offerTotal = offerUnit * q;
+      const savingPct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
+
+      items.push({
+        sku: p.sku,
         name: p.name,
         desc: p.desc,
         listUnit,
         offerUnit,
         quantity: q,
-        listTotal: listUnit * q,
-        offerTotal: offerUnit * q,
-        pct,
-      };
-    });
+        listTotal,
+        offerTotal,
+        pct: Math.max(0, Math.min(100, savingPct)),
+      });
+    }
+    return items;
   }, [qty, discPct, serviceAutoQty]);
 
-  const listSubtotalMonthly = useMemo(
-    () => monthlyRows.reduce((s, r) => s + r.listTotal, 0),
-    [monthlyRows]
-  );
-  const offerSubtotalMonthly = useMemo(
-    () => monthlyRows.reduce((s, r) => s + r.offerTotal, 0),
-    [monthlyRows]
-  );
+  // EINMALIG: Hardware + Setup
+  const oneTimeItems = useMemo(() => {
+    const rows: Array<{ sku: string; name: string; desc?: string; listUnit: number; offerUnit: number; quantity: number; listTotal: number; offerTotal: number; pct: number }> = [];
 
-  // Setup-Tier anhand Summe XVPR+XVDV+XVMO
-  const setupTier = useMemo(() => {
-    const n = serviceAutoQty;
-    if (!n || setupTiers.length === 0) return null;
-    const t = setupTiers.find((x) => n >= x.min && (x.max == null || n <= x.max));
-    return t || null;
-  }, [serviceAutoQty, setupTiers]);
+    // Hardware
+    for (const p of HARDWARE) {
+      const q = qty[p.sku] || 0;
+      if (q <= 0) continue;
+      const cap = DISCOUNT_CAP_HARDWARE;
+      const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
+      const listUnit = p.price;
+      const offerUnit = p.price * (1 - pct / 100);
+      const listTotal = listUnit * q;
+      const offerTotal = offerUnit * q;
+      const savingPct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
 
-  // Hardware (einmalig) + Setup-Pauschale
-  const oneTimeRows = useMemo(() => {
-    const rows =
-      hardware
-        .filter((h) => (qtyHw[h.sku] || 0) > 0)
-        .map((h) => {
-          const q = Math.max(0, Math.floor(qtyHw[h.sku] || 0));
-          const pct = Math.max(0, Math.min(DISCOUNT_CAP_HARDWARE, discHw[h.sku] || 0));
-          const listUnit = h.price;
-          const offerUnit = h.price * (1 - pct / 100);
-          return {
-            sku: h.sku,
-            name: h.name,
-            desc: h.desc,
-            listUnit,
-            offerUnit,
-            quantity: q,
-            listTotal: listUnit * q,
-            offerTotal: offerUnit * q,
-            pct,
-            unit: h.unit || "/einmalig",
-          };
-        });
+      rows.push({
+        sku: p.sku,
+        name: p.name,
+        desc: p.desc,
+        listUnit,
+        offerUnit,
+        quantity: q,
+        listTotal,
+        offerTotal,
+        pct: Math.max(0, Math.min(100, savingPct)),
+      });
+    }
 
+    // Setup-Tier (eine Position)
     if (setupTier) {
       rows.push({
         sku: setupTier.sku,
         name: setupTier.name,
-        desc: "Installations- & Konfigurationspauschale gemäß Lizenzsumme (Pos. 1–3).",
+        desc:
+          "Mit der xVoice UC Installations- & Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
         listUnit: setupTier.price,
         offerUnit: setupTier.price,
         quantity: 1,
         listTotal: setupTier.price,
         offerTotal: setupTier.price,
         pct: 0,
-        unit: "/einmalig",
       });
     }
 
     return rows;
-  }, [hardware, qtyHw, discHw, setupTier]);
+  }, [qty, discPct, setupTier]);
 
-  const listSubtotalOne = useMemo(
-    () => oneTimeRows.reduce((s, r) => s + r.listTotal, 0),
-    [oneTimeRows]
-  );
-  const offerSubtotalOne = useMemo(
-    () => oneTimeRows.reduce((s, r) => s + r.offerTotal, 0),
-    [oneTimeRows]
-  );
+  // Subtotals
+  const monthlySubtotal = useMemo(() => monthlyItems.reduce((s, r) => s + r.offerTotal, 0), [monthlyItems]);
+  const listMonthlySubtotal = useMemo(() => monthlyItems.reduce((s, r) => s + r.listTotal, 0), [monthlyItems]);
 
-  const listSubtotalTotal = listSubtotalMonthly + listSubtotalOne;
-  const offerSubtotalTotal = offerSubtotalMonthly + offerSubtotalOne;
+  const oneTimeSubtotal = useMemo(() => oneTimeItems.reduce((s, r) => s + r.offerTotal, 0), [oneTimeItems]);
+  const listOneTimeSubtotal = useMemo(() => oneTimeItems.reduce((s, r) => s + r.listTotal, 0), [oneTimeItems]);
 
-  // ===== EMAIL HTML =====
+  // EMAIL HTML
   const offerHtml = useMemo(
     () =>
       buildEmailHtml({
         customer,
         salesperson,
-        monthly: monthlyRows,
-        oneTime: oneTimeRows,
+        monthlyItems,
+        oneTimeItems,
+        monthlySubtotal,
+        oneTimeSubtotal,
         vatRate,
       }),
-    [customer, salesperson, monthlyRows, oneTimeRows, vatRate]
+    [customer, salesperson, monthlyItems, oneTimeItems, monthlySubtotal, oneTimeSubtotal, vatRate]
   );
 
-  // ===== UX State =====
+  // UX state
   const [sending, setSending] = useState(false);
   const [sendOk, setSendOk] = useState(false);
   const [error, setError] = useState("");
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
+  // Helpers
   function openPreviewNewTab() {
     try {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
       setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
+        try { URL.revokeObjectURL(url); } catch {}
       }, 5000);
       if (w) return;
     } catch {}
@@ -922,11 +866,7 @@ export default function Page() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
-      }, 0);
+      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 0);
       return;
     } catch {}
     try {
@@ -948,7 +888,7 @@ export default function Page() {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
-        return { ok: true, via: "clipboard" as const };
+        return { ok: true as const, via: "clipboard" as const };
       }
     } catch {}
     try {
@@ -962,11 +902,15 @@ export default function Page() {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      return { ok: !!ok, via: "execCommand" as const };
+      return { ok: !!ok as const, via: "execCommand" as const };
     } catch (error) {
-      return { ok: false, via: "blocked" as const, error };
+      return { ok: false as const, via: "blocked" as const, error };
     }
   }
+
+  // Dummy endpoints (anpassbar)
+  const EMAIL_ENDPOINT = "/api/send-offer";
+  const ORDER_ENDPOINT = "/api/place-order";
 
   async function postJson(url: string, payload: any) {
     try {
@@ -1003,17 +947,13 @@ export default function Page() {
         meta: { subject },
         offerHtml,
         customer,
-        monthlyRows,
-        oneTimeRows,
+        monthlyItems,
+        oneTimeItems,
         totals: {
-          listSubtotalMonthly,
-          offerSubtotalMonthly,
-          listSubtotalOne,
-          offerSubtotalOne,
-          listSubtotalTotal,
-          offerSubtotalTotal,
-          vat: offerSubtotalTotal * vatRate,
-          gross: offerSubtotalTotal * (1 + vatRate),
+          monthlySubtotal,
+          oneTimeSubtotal,
+          vat: (monthlySubtotal + oneTimeSubtotal) * vatRate,
+          gross: (monthlySubtotal + oneTimeSubtotal) * (1 + vatRate),
         },
         salesperson,
         recipients: [customer.email, salesEmail].filter(Boolean),
@@ -1035,17 +975,13 @@ export default function Page() {
         orderIntent: true,
         offerHtml,
         customer,
-        monthlyRows,
-        oneTimeRows,
+        monthlyItems,
+        oneTimeItems,
         totals: {
-          listSubtotalMonthly,
-          offerSubtotalMonthly,
-          listSubtotalOne,
-          offerSubtotalOne,
-          listSubtotalTotal,
-          offerSubtotalTotal,
-          vat: offerSubtotalTotal * vatRate,
-          gross: offerSubtotalTotal * (1 + vatRate),
+          monthlySubtotal,
+          oneTimeSubtotal,
+          vat: (monthlySubtotal + oneTimeSubtotal) * vatRate,
+          gross: (monthlySubtotal + oneTimeSubtotal) * (1 + vatRate),
         },
       });
       setSendOk(true);
@@ -1057,21 +993,9 @@ export default function Page() {
   }
 
   function resetAll() {
-    setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
-    setDiscPct(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
-    setQtyHw({});
-    setDiscHw({});
-    setCustomer({
-      salutation: "",
-      company: "",
-      contact: "",
-      email: "",
-      phone: "",
-      street: "",
-      zip: "",
-      city: "",
-      notes: "",
-    });
+    setQty(Object.fromEntries([...LICENSES, ...HARDWARE].map((p) => [p.sku, 0])));
+    setDiscPct(Object.fromEntries([...LICENSES, ...HARDWARE].map((p) => [p.sku, 0])));
+    setCustomer({ salutation: "", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
     setSalesperson({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
     setSendOk(false);
     setError("");
@@ -1079,37 +1003,29 @@ export default function Page() {
     setCopyError("");
   }
 
-  // ===== RENDER =====
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <Header />
 
-      {/* Abschnitt 1: Lizenzen (monatl.) */}
-      <Section
-        title="1) Lizenzen (monatlich)"
-        action={<div className="text-xs opacity-70">USt. fest: 19%</div>}
-      >
+      {/* Lizenzen (monatlich) */}
+      <Section title="1) Lizenzen (monatlich)" action={<div className="text-xs opacity-70">USt. fest: 19%</div>}>
         <div className="grid grid-cols-1 gap-2">
-          <div className="grid grid-cols-[minmax(220px,1fr)_110px_240px_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+          <div className="grid grid-cols-[minmax(220px,1fr)_110px_minmax(260px,1fr)_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
             <div>Listenpreis</div>
             <div>Menge & Rabatt</div>
             <div className="text-right">Summe</div>
           </div>
 
-          {CATALOG.map((item) => {
+          {LICENSES.map((item) => {
             const isService = item.sku === "XVPS";
             const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
             const onQ = isService
               ? () => {}
-              : (v: number) =>
-                  setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
-            const cap = DISCOUNT_CAP[item.sku] ?? 0;
-            const onD = (v: number) =>
-              setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
-            const helper = isService
-              ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)"
-              : undefined;
+              : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+            const cap = DISCOUNT_CAP_LICENSE[item.sku] ?? 0;
+            const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+            const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
 
             return (
               <ProductRow
@@ -1126,151 +1042,115 @@ export default function Page() {
             );
           })}
         </div>
+      </Section>
 
-        <div className="mt-4 flex items-start justify-between gap-6">
-          <div className="text-xs opacity-80">
-            Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.
+      {/* Hardware (einmalig) */}
+      <Section title="2) Hardware (einmalig)">
+        <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-[minmax(220px,1fr)_110px_minmax(260px,1fr)_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+            <div>Produkt</div>
+            <div>Listenpreis</div>
+            <div>Menge & Rabatt</div>
+            <div className="text-right">Summe</div>
           </div>
-          <Totals
-            subtotal={offerSubtotalMonthly}
-            listSubtotal={listSubtotalMonthly}
-            vatRate={vatRate}
-          />
+
+          {HARDWARE.map((item) => {
+            const q = qty[item.sku] || 0;
+            const onQ = (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+            const cap = DISCOUNT_CAP_HARDWARE;
+            const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+
+            return (
+              <ProductRow
+                key={item.sku}
+                item={item}
+                qty={q}
+                onQty={onQ}
+                discountPct={discPct[item.sku] || 0}
+                onDiscountPct={onD}
+                readOnly={false}
+                cap={cap}
+              />
+            );
+          })}
         </div>
       </Section>
 
-      {/* Abschnitt 2: Hardware (einmalig) */}
-      <Section title="2) Hardware (einmalig)">
-        {hardware.length === 0 ? (
-          <div className="text-sm opacity-70">
-            Keine Hardwaredaten gefunden. Lege <code>hardware.csv</code> im <code>/public</code>-Ordner ab.
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 gap-2">
-              <div className="grid grid-cols-[minmax(220px,1fr)_110px_240px_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
-                <div>Artikel</div>
-                <div>Listenpreis</div>
-                <div>Menge & Rabatt (max. 10%)</div>
-                <div className="text-right">Summe</div>
+      {/* Setup (einmalig, auto) */}
+      <Section title="3) Setup-Pauschale (einmalig)">
+        <div className="text-sm">
+          {setupTier ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-medium">{setupTier.name}</div>
+                <div className="text-xs text-muted-foreground">{setupTier.sku} · automatisch anhand der Nutzeranzahl gewählt</div>
               </div>
-
-              {hardware.map((h) => {
-                const q = Math.max(0, Math.floor(qtyHw[h.sku] || 0));
-                const pct = Math.max(0, Math.min(DISCOUNT_CAP_HARDWARE, discHw[h.sku] || 0));
-                const listUnit = h.price;
-                const offerUnit = h.price * (1 - pct / 100);
-                const sum = offerUnit * q;
-
-                const fieldStyle: React.CSSProperties = { width: "6.5rem" };
-
-                return (
-                  <div
-                    key={h.sku}
-                    className="grid grid-cols-[minmax(220px,1fr)_110px_240px_120px] items-start gap-4 py-3 border-b last:border-none"
-                  >
-                    <div>
-                      <div className="font-medium">{h.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {h.sku} · {h.desc}
-                      </div>
-                    </div>
-
-                    <div className="text-sm font-medium tabular-nums">
-                      {formatMoney(listUnit)}
-                      {pct > 0 && (
-                        <div className="text-xs">
-                          <span className="line-through opacity-60 mr-1">
-                            {formatMoney(listUnit)}
-                          </span>
-                          <span className="font-semibold" style={{ color: BRAND.primary }}>
-                            {formatMoney(offerUnit)}
-                          </span>
-                          <span
-                            className="ml-2 px-2 py-[2px] rounded-full text-[11px] text-white"
-                            style={{ background: BRAND.primary }}
-                          >
-                            -{pct}%
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={q}
-                        onChange={(e) =>
-                          setQtyHw((prev) => ({ ...prev, [h.sku]: Math.max(0, Math.floor(Number(e.target.value || 0))) }))
-                        }
-                        className="shrink-0"
-                        style={fieldStyle}
-                      />
-                      <div className="flex items-center gap-1">
-                        <Input
-                          type="number"
-                          min={0}
-                          max={DISCOUNT_CAP_HARDWARE}
-                          step={0.5}
-                          value={pct}
-                          onChange={(e) =>
-                            setDiscHw((prev) => ({
-                              ...prev,
-                              [h.sku]: Math.max(0, Math.min(DISCOUNT_CAP_HARDWARE, Number(e.target.value || 0))),
-                            }))
-                          }
-                          className="shrink-0"
-                          style={fieldStyle}
-                        />
-                        <span className="text-xs text-muted-foreground">max 10%</span>
-                      </div>
-                    </div>
-
-                    <div className="text-right font-semibold tabular-nums">
-                      {formatMoney(sum)}
-                    </div>
-                  </div>
-                );
-              })}
+              <div className="tabular-nums font-semibold">{formatMoney(setupTier.price)}</div>
             </div>
-
-            {setupTier && (
-              <div className="mt-3 text-sm">
-                <span className="inline-block px-2 py-1 rounded bg-neutral-100 border">
-                  Automatisch ausgewählte Konfigurationspauschale: <strong>{setupTier.name}</strong> ({formatMoney(setupTier.price)}) – basierend auf {serviceAutoQty} Lizenzen (Pos. 1–3).
-                </span>
-              </div>
-            )}
-
-            <div className="mt-4 flex items-start justify-between gap-6">
-              <div className="text-xs opacity-80">
-                Einmalige Kosten (Hardware & Setup) – netto zzgl. USt.
-              </div>
-              <Totals
-                subtotal={offerSubtotalOne}
-                listSubtotal={listSubtotalOne}
-                vatRate={vatRate}
-              />
-            </div>
-          </>
-        )}
+          ) : (
+            <div className="text-muted-foreground">Wird automatisch gesetzt, sobald mindestens eine Lizenz aus Premium/Device/Smartphone gewählt wurde.</div>
+          )}
+        </div>
       </Section>
 
-      {/* Versand / Kunde / Vertrieb */}
-      <Section title="Kundendaten & Versand">
-        <div className="grid md:grid-cols-3 gap-4">
+      {/* Zusammenfassung & Aktionen */}
+      <Section title="Zusammenfassung & Versand">
+        {/* Live Summaries */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <div>
+            <div className="font-semibold mb-2">Monatlich</div>
+            {monthlyItems.length === 0 ? (
+              <div className="text-sm opacity-70">Keine monatlichen Positionen.</div>
+            ) : (
+              <div className="space-y-1 text-sm">
+                {monthlyItems.map((li) => (
+                  <div key={li.sku} className="flex justify-between">
+                    <div>{li.quantity}× {li.name}</div>
+                    <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
+                  </div>
+                ))}
+                <div className="pt-2 border-t" />
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="font-semibold mb-2">Einmalig</div>
+            {oneTimeItems.length === 0 ? (
+              <div className="text-sm opacity-70">Keine einmaligen Positionen.</div>
+            ) : (
+              <div className="space-y-1 text-sm">
+                {oneTimeItems.map((li) => (
+                  <div key={li.sku} className="flex justify-between">
+                    <div>{li.quantity}× {li.name}</div>
+                    <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
+                  </div>
+                ))}
+                <div className="pt-2 border-t" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <TotalsBox
+            monthlySubtotal={monthlySubtotal}
+            oneTimeSubtotal={oneTimeSubtotal}
+            vatRate={vatRate}
+            listMonthlySubtotal={listMonthlySubtotal}
+            listOneTimeSubtotal={listOneTimeSubtotal}
+          />
+        </div>
+
+        {/* Kundendaten */}
+        <div className="mt-6 grid md:grid-cols-3 gap-4">
           <div className="flex items-center gap-2">
             <Label className="text-sm w-20">Anrede</Label>
             <select
               className="border rounded-md h-10 px-3 text-sm"
               value={customer.salutation}
               onChange={(e) =>
-                setCustomer({
-                  ...customer,
-                  salutation: e.target.value as Customer["salutation"],
-                })
+                setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })
               }
             >
               <option value="">–</option>
@@ -1278,105 +1158,38 @@ export default function Page() {
               <option value="Frau">Frau</option>
             </select>
           </div>
-          <Input
-            placeholder="Ansprechpartner"
-            value={customer.contact}
-            onChange={(e) =>
-              setCustomer({ ...customer, contact: e.target.value })
-            }
-          />
-          <Input
-            placeholder="Firma"
-            value={customer.company}
-            onChange={(e) =>
-              setCustomer({ ...customer, company: e.target.value })
-            }
-          />
-          <Input
-            placeholder="E-Mail Kunde"
-            type="email"
-            value={customer.email}
-            onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
-          />
-          <Input
-            placeholder="Telefon"
-            value={customer.phone}
-            onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-          />
-          <Input
-            placeholder="Straße & Nr."
-            value={customer.street}
-            onChange={(e) =>
-              setCustomer({ ...customer, street: e.target.value })
-            }
-          />
+          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
+          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
+          <Input placeholder="E-Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
+          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
+          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <Input
-              placeholder="PLZ"
-              value={customer.zip}
-              onChange={(e) => setCustomer({ ...customer, zip: e.target.value })}
-            />
-            <Input
-              placeholder="Ort"
-              value={customer.city}
-              onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
-            />
+            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
+            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} />
           </div>
           <div className="md:col-span-3">
-            <Textarea
-              placeholder="Interne Notizen (optional)"
-              value={customer.notes}
-              onChange={(e) =>
-                setCustomer({ ...customer, notes: e.target.value })
-              }
-            />
+            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })} />
           </div>
         </div>
 
+        {/* Vertrieb & Versand */}
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              placeholder="Name Vertriebsmitarbeiter"
-              value={salesperson.name}
-              onChange={(e) =>
-                setSalesperson({ ...salesperson, name: e.target.value })
-              }
-            />
-            <Input
-              placeholder="E-Mail Vertrieb"
-              type="email"
-              value={salesperson.email}
-              onChange={(e) =>
-                setSalesperson({ ...salesperson, email: e.target.value })
-              }
-            />
-            <Input
-              placeholder="Telefon Vertrieb"
-              value={salesperson.phone}
-              onChange={(e) =>
-                setSalesperson({ ...salesperson, phone: e.target.value })
-              }
-            />
+            <Input placeholder="Name Vertriebsmitarbeiter" value={salesperson.name} onChange={(e) => setSalesperson({ ...salesperson, name: e.target.value })} />
+            <Input placeholder="E-Mail Vertrieb" type="email" value={salesperson.email} onChange={(e) => setSalesperson({ ...salesperson, email: e.target.value })} />
+            <Input placeholder="Telefon Vertrieb" value={salesperson.phone} onChange={(e) => setSalesperson({ ...salesperson, phone: e.target.value })} />
           </div>
-          <Input
-            placeholder="Betreff"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-          />
+          <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 flex items-center gap-2">
             <Label className="text-sm">Vertrieb E-Mail (Kopie)</Label>
-            <Input
-              placeholder="vertrieb@xvoice-uc.de"
-              type="email"
-              value={salesEmail}
-              onChange={(e) => setSalesEmail(e.target.value)}
-            />
+            <Input placeholder="vertrieb@xvoice-uc.de" type="email" value={salesEmail} onChange={(e) => setSalesEmail(e.target.value)} />
           </div>
         </div>
 
+        {/* Aktionen */}
         <div className="flex flex-wrap items-center gap-3 mt-5">
           <Button onClick={openPreviewNewTab} variant="secondary" className="gap-2">
             <Eye size={16} /> Vorschau (neuer Tab)
@@ -1400,12 +1213,7 @@ export default function Page() {
           <Button onClick={handleDownloadHtml} className="gap-2" variant="outline">
             <Download size={16} /> HTML herunterladen
           </Button>
-          <Button
-            onClick={handleSendEmail}
-            disabled={sending}
-            className="gap-2"
-            style={{ backgroundColor: BRAND.primary }}
-          >
+          <Button onClick={handleSendEmail} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}>
             <Mail size={16} /> Angebot per Mail senden
           </Button>
           <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline">
@@ -1416,51 +1224,10 @@ export default function Page() {
           </Button>
         </div>
 
-        {sendOk && (
-          <div className="mt-3 flex items-center gap-2 text-green-700 text-sm">
-            <Check size={16} /> Erfolgreich übermittelt.
-          </div>
-        )}
+        {sendOk && <div className="mt-3 flex items-center gap-2 text-green-700 text-sm"><Check size={16} /> Erfolgreich übermittelt.</div>}
         {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
         {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
         {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
-      </Section>
-
-      {/* Gesamtsummen-Überblick */}
-      <Section title="Live-Zusammenfassung">
-        <div className="space-y-3 text-sm">
-          <div className="font-semibold">Monatlich</div>
-          {monthlyRows.length === 0 ? (
-            <div className="opacity-70">Keine Positionen.</div>
-          ) : (
-            monthlyRows.map((li) => (
-              <div key={`m-${li.sku}`} className="flex justify-between">
-                <div>{li.quantity}× {li.name} ({li.sku})</div>
-                <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
-              </div>
-            ))
-          )}
-
-          <div className="font-semibold mt-2">Einmalig</div>
-          {oneTimeRows.length === 0 ? (
-            <div className="opacity-70">Keine Positionen.</div>
-          ) : (
-            oneTimeRows.map((li) => (
-              <div key={`o-${li.sku}`} className="flex justify-between">
-                <div>{li.quantity}× {li.name} ({li.sku})</div>
-                <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
-              </div>
-            ))
-          )}
-
-          <div className="pt-2 border-t">
-            <Totals
-              subtotal={offerSubtotalTotal}
-              listSubtotal={listSubtotalTotal}
-              vatRate={vatRate}
-            />
-          </div>
-        </div>
       </Section>
 
       <footer className="text-xs text-center opacity-70 pt-2">
