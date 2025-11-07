@@ -503,7 +503,7 @@ function Header() {
       style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
     >
       <div className="flex items-center gap-6">
-        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-28 w-28 object-contain" />
+        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-32 w-32 object-contain" />
         <div>
           <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
             Angebots- und Bestell-Konfigurator
