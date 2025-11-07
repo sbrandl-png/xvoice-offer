@@ -10,22 +10,22 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
 
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
- * - Rabatte pro Position mit Maximalgrenzen
- * - Auto XVPS Menge = XVPR + XVDV + XVMO
- * - Salutation Select, Vertriebssignatur
- * - Stabile Vorschau (neuer Tab), Download, Copy mit Fallback
- * - Sauberes E-Mail-HTML in CI
+ * - 19% MwSt., Endpreise netto -> +19%
+ * - Auto XVPS qty = XVPR + XVDV + XVMO
+ * - Rabatt auf Positionsebene mit Max-Grenzen
+ * - Salutation-Select, Salesperson-Signatur
+ * - Stabile Vorschau, Download, Copy-Fallback
+ * - HTML-Mail im xVoice CI (Adressfeld grau, Abstände, CEO-Block mit orangenem Gedankenstrich)
  */
 
-// ===== BRAND / COMPANY =====
+/* ===== BRAND / COMPANY ===== */
 const BRAND = {
   name: "xVoice UC",
   primary: "#ff4e00",
   dark: "#111111",
   headerBg: "#000000",
   headerFg: "#ffffff",
-  logoUrl:
-    "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
+  logoUrl: "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
 } as const;
 
 const COMPANY = {
@@ -38,7 +38,7 @@ const COMPANY = {
   web: "www.xvoice-uc.de",
 } as const;
 
-// ===== PRODUCTS =====
+/* ===== DATA (Seite 1 – Lizenzen mtl.) ===== */
 const CATALOG = [
   {
     sku: "XVPR",
@@ -46,70 +46,52 @@ const CATALOG = [
     price: 8.95,
     unit: "/Monat",
     desc:
-      "Voller Leistungsumfang inkl. Softphone & Smartphone, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
+      "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
   },
   {
     sku: "XVDV",
     name: "xVoice UC Device Only",
     price: 3.85,
     unit: "/Monat",
-    desc:
-      "Für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
+    desc: "Lizenz für einfache Endgeräte: analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
   },
   {
     sku: "XVMO",
     name: "xVoice UC Smartphone Only",
     price: 5.70,
     unit: "/Monat",
-    desc:
-      "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
+    desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
   },
   {
     sku: "XVTE",
     name: "xVoice UC Teams Integration",
     price: 4.75,
     unit: "/Monat",
-    desc:
-      "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).",
+    desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).",
   },
   {
     sku: "XVPS",
     name: "xVoice UC Premium Service 4h SLA (je Lizenz)",
     price: 1.35,
     unit: "/Monat",
-    desc:
-      "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
+    desc: "Upgrade auf 4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
   },
   {
     sku: "XVCRM",
     name: "xVoice UC Software Integration Lizenz",
     price: 5.95,
     unit: "/Monat",
-    desc:
-      "Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
+    desc: "Nahtlose Integration in CRM/Helpdesk & Business-Tools (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
   },
   {
     sku: "XVF2M",
     name: "xVoice UC Fax2Mail Service",
     price: 0.99,
     unit: "/Monat",
-    desc:
-      "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
+    desc: "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
   },
 ] as const;
 
-// Max. Rabattgrenzen pro SKU
-const MAX_DISCOUNT: Record<string, number> = {
-  XVPR: 40,
-  XVDV: 40,
-  XVMO: 40,
-  XVTE: 20,
-  XVCRM: 20,
-  XVF2M: 100,
-  XVPS: 0,
-};
-
-// ===== TYPES =====
 type Customer = {
   salutation: "Herr" | "Frau" | "";
   company: string;
@@ -128,7 +110,10 @@ type Salesperson = {
   phone: string;
 };
 
-// ===== UTILS =====
+const EMAIL_ENDPOINT = "/api/send-offer";
+const ORDER_ENDPOINT = "/api/place-order";
+
+/* ===== UTILS ===== */
 function formatMoney(value: number) {
   return new Intl.NumberFormat("de-DE", {
     style: "currency",
@@ -136,11 +121,9 @@ function formatMoney(value: number) {
     minimumFractionDigits: 2,
   }).format(value);
 }
-
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
-
 function escapeHtml(str: string) {
   return String(str)
     .replaceAll("&", "&amp;")
@@ -149,17 +132,15 @@ function escapeHtml(str: string) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
 }
-
 function fullCustomerAddress(c: Customer) {
   const lines = [
-    c.company || "",
-    c.contact || "",
-    c.street || "",
+    c.company ? c.company : "",
+    c.contact ? c.contact : "",
+    c.street ? c.street : "",
     [c.zip, c.city].filter(Boolean).join(" "),
   ].filter(Boolean);
   return lines.join("\n");
 }
-
 function greetingLine(customer: Customer) {
   const name = (customer.contact || "").trim();
   if (!name) return "Guten Tag,";
@@ -168,7 +149,18 @@ function greetingLine(customer: Customer) {
     : `Sehr geehrter Herr ${name},`;
 }
 
-// ===== EMAIL HTML BUILDER =====
+/* ===== RABATT-GRENZEN JE SKU ===== */
+const MAX_DISCOUNT_BY_SKU: Record<string, number> = {
+  XVPR: 40,
+  XVDV: 40,
+  XVMO: 40,
+  XVTE: 20,
+  XVCRM: 20,
+  XVF2M: 100,
+  XVPS: 0, // Service SLA nicht rabattierbar
+};
+
+/* ===== EMAIL HTML BUILDER ===== */
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
@@ -176,15 +168,18 @@ function buildEmailHtml(params: {
     sku: string;
     name: string;
     desc?: string;
-    price: number;
+    price: number;      // bereits rabattierter Einzelpreis
     quantity: number;
-    discountPct: number;
-    total: number;
+    total: number;      // bereits rabattierter Gesamtpreis
   }>;
-  subtotal: number;
+  subtotal: number;     // Summe rabattierter Positionen netto
   vatRate: number;
 }) {
   const { customer, salesperson, lineItems, subtotal, vatRate } = params;
+
+  const net = Math.max(0, subtotal);
+  const vat = net * vatRate;
+  const gross = net + vat;
 
   const s = {
     body:
@@ -201,6 +196,7 @@ function buildEmailHtml(params: {
     h3: `margin:0 0 8px 0;font-size:16px;color:${BRAND.dark}`,
     p: "margin:0 0 10px 0;font-size:14px;color:#333;line-height:1.6",
     pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
+    li: "margin:0 0 4px 0;font-size:14px;color:#333",
     th:
       "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
     td:
@@ -219,9 +215,6 @@ function buildEmailHtml(params: {
     "https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full";
 
   const addressCustomer = fullCustomerAddress(customer);
-  const net = Math.max(0, subtotal);
-  const vat = net * vatRate;
-  const gross = net + vat;
 
   return `<!DOCTYPE html>
 <html lang="de">
@@ -230,54 +223,51 @@ function buildEmailHtml(params: {
   <div style="${s.container}">
     <div style="${s.card}">
       <div style="${s.header}">
-        <table style="${s.headerTable}"><tr>
-          <td style="vertical-align:middle">
-            <img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" />
-          </td>
-          <td style="vertical-align:middle;text-align:right">
-            <p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p>
-          </td>
-        </tr></table>
+        <table style="${s.headerTable}">
+          <tr>
+            <td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
+            <td style="text-align:right"><p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>
+          </tr>
+        </table>
       </div>
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
-        ${
-          customer.company
-            ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>`
-            : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`
-        }
+        ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
         ${
           addressCustomer
-            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin:12px 0 18px 0;line-height:1.55;font-size:13px;color:#333;">
-                 ${escapeHtml(addressCustomer).replace(/\n/g, "<br>")}
-               </div>`
+            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(
+                addressCustomer
+              ).replace(/\n/g, "<br>")}</div>`
             : ""
         }
-
         <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
-        <p style="${s.p}">vielen Dank für Ihr Interesse an <strong>xVoice UC</strong>. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft&nbsp;Teams und führenden CRM-Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
 
-        <!-- Warum xVoice (links) + Client (rechts) -->
-        <table width="100%" style="border-collapse:collapse;margin:14px 0 12px 0">
+        <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft Teams und führenden CRM-Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
+        <p style="${s.p}">Unsere Lösung bietet Ihnen nicht nur höchste Flexibilität und Ausfallsicherheit, sondern lässt sich auch vollständig in Ihre bestehende Umgebung integrieren. Auf Wunsch übernehmen wir gerne die gesamte Koordination der Umstellung, sodass Sie sich um nichts kümmern müssen.</p>
+        <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams-Call, ganz wie es Ihnen am besten passt.</p>
+        <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
+
+        <!-- Warum xVoice UC links | Client rechts -->
+        <table width="100%" style="margin:26px 0 26px 0;border-collapse:collapse">
           <tr>
-            <td style="padding:0 18px 0 0;vertical-align:top">
-              <div style="color:#222;font-size:15px;line-height:1.6;margin-bottom:8px"><strong>Warum xVoice UC?</strong></div>
-              <ul style="margin:0;padding:0 0 0 18px;color:#333">
-                <li style="margin:0 0 6px 0;font-size:14px;color:#333">Nahtlose Integration in <strong>Microsoft Teams</strong> & CRM/Helpdesk</li>
-                <li style="margin:0 0 6px 0;font-size:14px;color:#333"><strong>Cloud in Deutschland</strong> · DSGVO-konform</li>
-                <li style="margin:0 0 6px 0;font-size:14px;color:#333">Schnelle Bereitstellung, <strong>skalierbar</strong> je Nutzer</li>
-                <li style="margin:0 0 6px 0;font-size:14px;color:#333">Optionale <strong>4h-SLA</strong> & priorisierter Support</li>
+            <td style="vertical-align:top;width:55%;padding-right:20px">
+              <h3 style="${s.h3}">Warum xVoice UC?</h3>
+              <ul style="padding-left:18px;margin:8px 0 12px 0">
+                <li style="${s.li}">Nahtlose Integration in Microsoft Teams & CRM/Helpdesk</li>
+                <li style="${s.li}">Cloud in Deutschland · DSGVO-konform</li>
+                <li style="${s.li}">Schnelle Bereitstellung, skalierbar je Nutzer</li>
+                <li style="${s.li}">Optionale 4h-SLA & priorisierter Support</li>
               </ul>
             </td>
-            <td style="padding:0;vertical-align:bottom;width:280px">
-              <img src="${clientImage}" alt="xVoice UC Client" style="display:block;max-width:280px;width:100%;border-radius:12px;border:1px solid #e5e7eb" />
+            <td style="vertical-align:top;width:45%">
+              <img src="${clientImage}" alt="xVoice UC Client" style="width:100%;border-radius:10px;border:1px solid #eee;display:block" />
             </td>
           </tr>
         </table>
 
-        <!-- Positionen / Preise -->
-        <table width="100%" style="border-collapse:collapse;margin-top:14px">
+        <!-- Positionen -->
+        <table width="100%" style="border-collapse:collapse;margin-top:6px">
           <thead>
             <tr>
               <th style="${s.th}">Position</th>
@@ -291,29 +281,22 @@ function buildEmailHtml(params: {
               .map(
                 (li) => `
               <tr>
-                <td style="${s.td}">
-                  <strong>${escapeHtml(li.name)}</strong>
-                  ${
-                    li.desc
-                      ? `<div style="${s.pSmall}">${escapeHtml(li.desc)}</div>`
-                      : ""
-                  }
-                  ${
-                    li.discountPct > 0
-                      ? `<div style="${s.pSmall}">Rabatt −${li.discountPct}%</div>`
-                      : ""
-                  }
-                </td>
+                <td style="${s.td}"><strong>${escapeHtml(li.name)}</strong>${
+                  li.desc
+                    ? `<div style="${s.pSmall}">${escapeHtml(li.desc)}</div>`
+                    : ""
+                }<div style="${s.pSmall}">${li.sku}</div></td>
                 <td style="${s.td}">${li.quantity}</td>
                 <td style="${s.td}">${formatMoney(li.price)}</td>
                 <td style="${s.td}"><strong>${formatMoney(li.total)}</strong></td>
-              </tr>`
+              </tr>
+            `
               )
               .join("")}
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
-              <td style="${s.totalRow}"><strong>${formatMoney(net)}</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
             </tr>
             <tr>
               <td colspan="2"></td>
@@ -328,13 +311,13 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
-        <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <!-- CTAs unten -->
+        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
           <a href="#" style="${s.btn}">Jetzt bestellen</a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
-        <p style="font-size:12px;color:#666;margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
 
-        <!-- Gruß & Vertrieb -->
+        <!-- Vertriebsgruß -->
         <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <p style="${s.p}">Mit freundlichen Grüßen</p>
           ${
@@ -346,30 +329,34 @@ function buildEmailHtml(params: {
           ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
         </div>
 
-        <!-- CEO-Block -->
-        <table width="100%" style="border-collapse:collapse;margin:8px 0 0 0">
-          <tr>
-            <td style="vertical-align:top;width:100px;padding:0 12px 0 0">
-              <img src="${ceoPhoto}" alt="Sebastian Brandl" style="display:block;width:100px;height:100px;object-fit:cover;border:1px solid #eee;border-radius:0" />
-            </td>
-            <td style="vertical-align:top">
-              <div style="font-size:14px;color:#222;line-height:1.55">
-                „Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service.
-                Gerne begleiten wir Sie von der Planung bis zum Go-Live.“
-              </div>
-              <div style="margin-top:8px">
-                <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="display:block;max-width:160px;width:100%;opacity:0.9" />
-                <div style="font-size:12px;color:#555;margin-top:2px"><strong>Sebastian Brandl</strong> · Geschäftsführer</div>
-              </div>
-            </td>
-          </tr>
-        </table>
+        <!-- Oranger Gedankenstrich als Trennung -->
+        <div style="text-align:center;margin:12px 0 18px 0;">
+          <span style="display:inline-block;font-size:22px;line-height:1;color:${BRAND.primary};">—</span>
+        </div>
 
-        <!-- Firmenfooter -->
-        <div style="margin-top:18px;padding-top:12px;border-top:1px solid #eee">
-          <p style="margin:0 0 4px 0;font-size:13px;font-weight:bold;color:#111">${COMPANY.legal}</p>
-          <p style="margin:0;font-size:12px;color:#444">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
-          <p style="margin:0;font-size:12px;color:#444">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+        <!-- CEO Block: Foto links, Text/Signatur rechts -->
+        <div style="margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
+          <table width="100%" style="border-collapse:collapse">
+            <tr>
+              <td style="width:120px;vertical-align:top">
+                <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:100%;max-width:120px;border:1px solid #eee;border-radius:0;display:block" />
+              </td>
+              <td style="vertical-align:top;padding-left:20px">
+                <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go-Live.“</em></p>
+                <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
+                <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
+
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
+          <p style="${s.pSmall}">${COMPANY.legal}</p>
+          <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+          <p style="${s.pSmall}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+          <p style="${s.pSmall}">© ${new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
         </div>
       </div>
     </div>
@@ -378,7 +365,7 @@ function buildEmailHtml(params: {
 </html>`;
 }
 
-// ===== SMALL UI PARTS =====
+/* ===== SMALL UI PARTS ===== */
 function Header() {
   return (
     <div
@@ -391,8 +378,13 @@ function Header() {
           alt="xVoice Logo"
           className="h-20 w-20 object-contain"
         />
-        <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
-          Angebots- und Bestell-Konfigurator
+        <div>
+          <div className="text-2xl font-semibold" style={{ color: BRAND.headerFg }}>
+            {/* Wortmarke bewusst nicht doppelt */}
+          </div>
+          <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
+            Angebots- und Bestell-Konfigurator
+          </div>
         </div>
       </div>
       <div className="text-sm" style={{ color: "#d1d5db" }}>
@@ -422,31 +414,32 @@ function Section({
   );
 }
 
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
 function ProductRow({
   item,
   qty,
   onQty,
-  discount,
-  onDiscount,
+  discountPct,
+  onDiscountPct,
+  maxDiscount,
   readOnly,
   helper,
-  maxDiscount,
 }: {
   item: typeof CATALOG[number];
   qty: number;
   onQty: (v: number) => void;
-  discount: number;
-  onDiscount: (v: number) => void;
+  discountPct: number;
+  onDiscountPct: (v: number) => void;
+  maxDiscount: number;
   readOnly?: boolean;
   helper?: string;
-  maxDiscount: number;
 }) {
-  const capped = Math.max(0, Math.min(maxDiscount, discount || 0));
-  const total = item.price * (1 - capped / 100) * (qty || 0);
-  const capHint = `Max. ${maxDiscount}%`;
-
+  const unitAfterDiscount = item.price * (1 - clamp(discountPct, 0, maxDiscount) / 100);
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_100px_120px_120px_120px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(260px,1fr)_110px_120px_120px_120px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">
@@ -454,9 +447,7 @@ function ProductRow({
         </div>
       </div>
 
-      <div className="text-sm font-medium tabular-nums">
-        {formatMoney(item.price)}
-      </div>
+      <div className="text-sm font-medium tabular-nums">{formatMoney(item.price)}</div>
 
       <div className="flex items-center gap-2">
         <Input
@@ -465,7 +456,7 @@ function ProductRow({
           step={1}
           value={qty}
           onChange={(e) => onQty(Number(e.target.value || 0))}
-          className="w-24"
+          className="w-28"
           disabled={!!readOnly}
         />
         <span className="text-xs text-muted-foreground">{item.unit}</span>
@@ -476,73 +467,74 @@ function ProductRow({
           type="number"
           min={0}
           max={maxDiscount}
-          step={1}
-          value={capped}
-          onChange={(e) =>
-            onDiscount(
-              Math.max(0, Math.min(maxDiscount, Number(e.target.value || 0)))
-            )
-          }
+          step={0.5}
+          value={discountPct}
+          onChange={(e) => onDiscountPct(clamp(Number(e.target.value || 0), 0, maxDiscount))}
           className="w-24"
-          disabled={maxDiscount === 0}
+          disabled={maxDiscount === 0 || qty <= 0}
         />
-        <span className="text-xs text-muted-foreground">%</span>
+        <span className="text-xs text-muted-foreground">% (max {maxDiscount}%)</span>
       </div>
 
-      <div className="text-right font-semibold tabular-nums">
-        {formatMoney(total)}
-      </div>
+      <div className="text-right font-semibold tabular-nums">{formatMoney(unitAfterDiscount * qty)}</div>
 
-      <div className="col-span-5 -mt-2 text-xs text-muted-foreground">
-        {helper ? `${helper} · ${capHint}` : capHint}
-      </div>
+      {helper ? (
+        <div className="col-span-5 -mt-2 text-xs text-muted-foreground">{helper}</div>
+      ) : null}
     </div>
   );
 }
 
-// ===== SAFE CLIPBOARD =====
-async function safeCopyToClipboard(text: string): Promise<{ ok: boolean }> {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text);
-      return { ok: true };
-    }
-  } catch {
-    // ignore and try fallback
-  }
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.focus();
-    ta.select();
-    const copied = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return { ok: Boolean(copied) };
-  } catch {
-    return { ok: false };
-  }
+function Totals({
+  subtotal,
+  vatRate,
+}: {
+  subtotal: number;
+  vatRate: number;
+}) {
+  const net = Math.max(0, subtotal);
+  const vat = net * vatRate;
+  const gross = net + vat;
+  const Row = ({
+    label,
+    value,
+    strong = false,
+  }: {
+    label: string;
+    value: string;
+    strong?: boolean;
+  }) => (
+    <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
+      <span className={strong ? "font-semibold" : undefined}>{label}</span>
+      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>
+        {value}
+      </span>
+    </div>
+  );
+  return (
+    <div className="space-y-1 text-sm">
+      <Row label="Zwischensumme (netto)" value={formatMoney(subtotal)} />
+      <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
+      <Row label="Bruttosumme" value={formatMoney(gross)} strong />
+    </div>
+  );
 }
 
-// ===== PAGE =====
+/* ===== PAGE ===== */
 export default function Page() {
-  // Mengen pro SKU
+  // Quantities
   const [qty, setQty] = useState<Record<string, number>>(
     Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
   );
 
-  // Rabatt % pro SKU (wird hart gekappt)
-  const [discountBySku, setDiscountBySku] = useState<Record<string, number>>(
+  // Per-Position Discounts (in %)
+  const [discounts, setDiscounts] = useState<Record<string, number>>(
     Object.fromEntries(CATALOG.map((p) => [p.sku, 0]))
   );
 
-  // Fixe USt.
-  const [vatRate] = useState(0.19);
+  const [vatRate] = useState(0.19); // fixed 19%
 
-  // Kunde
+  // Customer
   const [customer, setCustomer] = useState<Customer>({
     salutation: "",
     company: "",
@@ -555,38 +547,38 @@ export default function Page() {
     notes: "",
   });
 
-  // Vertrieb
+  // Salesperson
   const [salesperson, setSalesperson] = useState<Salesperson>({
     name: "",
     email: "vertrieb@xvoice-uc.de",
     phone: "",
   });
 
-  // Service-Lizenzen automatisch
+  const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
+  const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
+
+  // Derived: Auto XVPS = Premium + Device + Smartphone
   const serviceAutoQty = useMemo(
     () => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0),
     [qty]
   );
 
-  // Positionen mit Rabattkappung
+  // Build line items with applied per-item discount caps
   const lineItems = useMemo(() => {
-    return CATALOG.filter((p) =>
-      p.sku === "XVPS" ? serviceAutoQty > 0 : (qty[p.sku] || 0) > 0
-    ).map((p) => {
-      const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku] || 0);
-      const cap = MAX_DISCOUNT[p.sku] ?? 0;
-      const d = Math.max(0, Math.min(cap, discountBySku[p.sku] || 0));
-      const total = p.price * (1 - d / 100) * q;
-      return {
-        ...p,
-        quantity: q,
-        discountPct: d,
-        total,
-      };
-    });
-  }, [qty, discountBySku, serviceAutoQty]);
+    return CATALOG
+      .filter((p) => {
+        if (p.sku === "XVPS") return serviceAutoQty > 0;
+        return (qty[p.sku] || 0) > 0;
+      })
+      .map((p) => {
+        const q = p.sku === "XVPS" ? serviceAutoQty : (qty[p.sku] || 0);
+        const cap = MAX_DISCOUNT_BY_SKU[p.sku] ?? 0;
+        const d = clamp(discounts[p.sku] || 0, 0, cap);
+        const unit = p.price * (1 - d / 100);
+        return { sku: p.sku, name: p.name, desc: p.desc, price: unit, quantity: q, total: unit * q };
+      });
+  }, [qty, discounts, serviceAutoQty]);
 
-  // Summen
   const subtotal = useMemo(
     () => lineItems.reduce((s, li) => s + li.total, 0),
     [lineItems]
@@ -604,18 +596,17 @@ export default function Page() {
     [customer, salesperson, lineItems, subtotal, vatRate]
   );
 
-  // UI-State
-  const [error, setError] = useState("");
+  // UX state
+  const [sending, setSending] = useState(false);
   const [sendOk, setSendOk] = useState(false);
+  const [error, setError] = useState("");
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
-  // Aktionen
+  // Helpers
   function openPreviewNewTab() {
     try {
-      const blob = new Blob([offerHtml], {
-        type: "text/html;charset=utf-8",
-      });
+      const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
       setTimeout(() => {
@@ -626,8 +617,7 @@ export default function Page() {
       if (w) return;
     } catch {}
     try {
-      const dataUrl =
-        "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
+      const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       window.open(dataUrl, "_blank", "noopener");
     } catch (err) {
       setError("Vorschau blockiert: " + String(err));
@@ -636,9 +626,7 @@ export default function Page() {
 
   function handleDownloadHtml() {
     try {
-      const blob = new Blob([offerHtml], {
-        type: "text/html;charset=utf-8",
-      });
+      const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -669,9 +657,109 @@ export default function Page() {
     }
   }
 
+  async function safeCopyToClipboard(text: string) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return { ok: true, via: "clipboard" };
+      }
+    } catch {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return { ok: !!ok, via: "execCommand" };
+    } catch (error) {
+      return { ok: false, via: "blocked", error };
+    }
+  }
+
+  async function postJson(url: string, payload: any) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json().catch(() => ({}));
+    } catch (err: any) {
+      const msg = String(err?.message || err || "");
+      if (/UnsupportedHttpVerb|405|method not allowed/i.test(msg)) {
+        const minimal = {
+          subject: payload?.meta?.subject || "xVoice Angebot",
+          to: (payload?.recipients || []).join(","),
+          company: payload?.customer?.company || "",
+        };
+        const qs = new URLSearchParams({ data: JSON.stringify(minimal) }).toString();
+        const res2 = await fetch(`${url}?${qs}`, { method: "GET" });
+        if (!res2.ok) throw new Error(await res2.text());
+        return res2.json().catch(() => ({}));
+      }
+      throw err;
+    }
+  }
+
+  async function handleSendEmail() {
+    setSending(true);
+    setError("");
+    setSendOk(false);
+    try {
+      await postJson(EMAIL_ENDPOINT, {
+        meta: { subject },
+        offerHtml,
+        customer,
+        lineItems,
+        totals: {
+          subtotal,
+          vat: subtotal * vatRate,
+          gross: subtotal * (1 + vatRate),
+        },
+        salesperson,
+        recipients: [customer.email, salesEmail].filter(Boolean),
+      });
+      setSendOk(true);
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleOrderNow() {
+    setSending(true);
+    setError("");
+    setSendOk(false);
+    try {
+      await postJson(ORDER_ENDPOINT, {
+        orderIntent: true,
+        offerHtml,
+        customer,
+        lineItems,
+        totals: {
+          subtotal,
+          vat: subtotal * vatRate,
+          gross: subtotal * (1 + vatRate),
+        },
+      });
+      setSendOk(true);
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setSending(false);
+    }
+  }
+
   function resetAll() {
     setQty(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
-    setDiscountBySku(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
+    setDiscounts(Object.fromEntries(CATALOG.map((p) => [p.sku, 0])));
     setCustomer({
       salutation: "",
       company: "",
@@ -694,9 +782,17 @@ export default function Page() {
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <Header />
 
-      <Section title="Produkte & Rabatte">
+      <Section
+        title="Produkte auswählen (Seite 1 – Lizenzen mtl.)"
+        action={
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="text-xs opacity-80">USt. fest: 19%</div>
+          </div>
+        }
+      >
         <div className="grid grid-cols-1 gap-2">
-          <div className="grid grid-cols-[minmax(260px,1fr)_100px_120px_120px_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
+          {/* Tabellenkopf */}
+          <div className="grid grid-cols-[minmax(260px,1fr)_110px_120px_120px_120px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
             <div>Preis</div>
             <div>Menge</div>
@@ -704,6 +800,7 @@ export default function Page() {
             <div className="text-right">Summe</div>
           </div>
 
+          {/* Zeilen */}
           {CATALOG.map((item) => {
             const isService = item.sku === "XVPS";
             const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
@@ -713,10 +810,8 @@ export default function Page() {
             const helper = isService
               ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)"
               : undefined;
-            const maxDisc = MAX_DISCOUNT[item.sku] ?? 0;
-            const discValue = discountBySku[item.sku] || 0;
-            const onDisc = (v: number) =>
-              setDiscountBySku((prev) => ({ ...prev, [item.sku]: v }));
+            const maxD = MAX_DISCOUNT_BY_SKU[item.sku] ?? 0;
+            const disc = clamp(discounts[item.sku] || 0, 0, maxD);
 
             return (
               <ProductRow
@@ -724,11 +819,13 @@ export default function Page() {
                 item={item}
                 qty={q}
                 onQty={onQ}
-                discount={discValue}
-                onDiscount={onDisc}
+                discountPct={disc}
+                onDiscountPct={(v) =>
+                  setDiscounts((prev) => ({ ...prev, [item.sku]: clamp(v, 0, maxD) }))
+                }
+                maxDiscount={maxD}
                 readOnly={isService}
                 helper={helper}
-                maxDiscount={maxDisc}
               />
             );
           })}
@@ -739,26 +836,7 @@ export default function Page() {
             Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr.
             Änderungen vorbehalten.
           </div>
-          <div className="space-y-1 text-sm">
-            <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
-              <span>Zwischensumme (netto)</span>
-              <span className="tabular-nums text-right font-semibold">
-                {formatMoney(subtotal)}
-              </span>
-            </div>
-            <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
-              <span>zzgl. USt. (19%)</span>
-              <span className="tabular-nums text-right">
-                {formatMoney(subtotal * vatRate)}
-              </span>
-            </div>
-            <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
-              <span className="font-semibold">Bruttosumme</span>
-              <span className="tabular-nums text-right font-semibold">
-                {formatMoney(subtotal * (1 + vatRate))}
-              </span>
-            </div>
-          </div>
+          <Totals subtotal={subtotal} vatRate={0.19} />
         </div>
       </Section>
 
@@ -770,10 +848,7 @@ export default function Page() {
               className="border rounded-md h-10 px-3 text-sm"
               value={customer.salutation}
               onChange={(e) =>
-                setCustomer({
-                  ...customer,
-                  salutation: e.target.value as Customer["salutation"],
-                })
+                setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })
               }
             >
               <option value="">–</option>
@@ -781,7 +856,6 @@ export default function Page() {
               <option value="Frau">Frau</option>
             </select>
           </div>
-
           <Input
             placeholder="Ansprechpartner"
             value={customer.contact}
@@ -800,16 +874,12 @@ export default function Page() {
             placeholder="E-Mail Kunde"
             type="email"
             value={customer.email}
-            onChange={(e) =>
-              setCustomer({ ...customer, email: e.target.value })
-            }
+            onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
           />
           <Input
             placeholder="Telefon"
             value={customer.phone}
-            onChange={(e) =>
-              setCustomer({ ...customer, phone: e.target.value })
-            }
+            onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
           />
           <Input
             placeholder="Straße & Nr."
@@ -827,9 +897,7 @@ export default function Page() {
             <Input
               placeholder="Ort"
               value={customer.city}
-              onChange={(e) =>
-                setCustomer({ ...customer, city: e.target.value })
-              }
+              onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
             />
           </div>
           <div className="md:col-span-3">
@@ -868,24 +936,37 @@ export default function Page() {
               }
             />
           </div>
+          <Input
+            placeholder="Betreff"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
+        </div>
+
+        <div className="grid md:grid-cols-3 gap-4 mt-4">
+          <div className="md:col-span-2 flex items-center gap-2">
+            <Label className="text-sm">Vertrieb E-Mail (Kopie)</Label>
+            <Input
+              placeholder="vertrieb@xvoice-uc.de"
+              type="email"
+              value={salesEmail}
+              onChange={(e) => setSalesEmail(e.target.value)}
+            />
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 mt-5">
           <Button onClick={openPreviewNewTab} variant="secondary" className="gap-2">
             <Eye size={16} /> Vorschau (neuer Tab)
           </Button>
-
           <Button
             onClick={async () => {
               setCopyOk(false);
               setCopyError("");
               const r = await safeCopyToClipboard(offerHtml);
-              if (r.ok) {
-                setCopyOk(true);
-              } else {
-                setCopyError(
-                  "Kopieren blockiert. HTML wird stattdessen heruntergeladen."
-                );
+              if (r.ok) setCopyOk(true);
+              else {
+                setCopyError("Kopieren blockiert. HTML wird stattdessen heruntergeladen.");
                 handleDownloadHtml();
               }
             }}
@@ -894,11 +975,20 @@ export default function Page() {
           >
             <Copy size={16} /> HTML kopieren
           </Button>
-
           <Button onClick={handleDownloadHtml} className="gap-2" variant="outline">
             <Download size={16} /> HTML herunterladen
           </Button>
-
+          <Button
+            onClick={handleSendEmail}
+            disabled={sending}
+            className="gap-2"
+            style={{ backgroundColor: BRAND.primary }}
+          >
+            <Mail size={16} /> Angebot per Mail senden
+          </Button>
+          <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline">
+            <ShoppingCart size={16} /> Jetzt bestellen
+          </Button>
           <Button onClick={resetAll} variant="ghost" className="gap-2 text-red-600">
             <Trash2 size={16} /> Zurücksetzen
           </Button>
@@ -909,17 +999,9 @@ export default function Page() {
             <Check size={16} /> Erfolgreich übermittelt.
           </div>
         )}
-        {!!error && (
-          <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>
-        )}
-        {copyOk && (
-          <div className="mt-3 text-green-700 text-sm">
-            HTML in die Zwischenablage kopiert.
-          </div>
-        )}
-        {!!copyError && (
-          <div className="mt-3 text-amber-600 text-sm">{copyError}</div>
-        )}
+        {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
+        {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
+        {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
       </Section>
 
       <Section title="Live-Zusammenfassung">
@@ -930,31 +1012,13 @@ export default function Page() {
             {lineItems.map((li) => (
               <div key={li.sku} className="flex justify-between text-sm">
                 <div>
-                  {li.quantity}× {li.name} ({li.sku}
-                  {li.discountPct > 0 ? `, −${li.discountPct}%` : ""})
+                  {li.quantity}× {li.name} ({li.sku})
                 </div>
                 <div className="tabular-nums">{formatMoney(li.total)}</div>
               </div>
             ))}
             <div className="pt-2 border-t">
-              <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10 text-sm">
-                <span>Zwischensumme (netto)</span>
-                <span className="tabular-nums text-right font-semibold">
-                  {formatMoney(subtotal)}
-                </span>
-              </div>
-              <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10 text-sm">
-                <span>zzgl. USt. (19%)</span>
-                <span className="tabular-nums text-right">
-                  {formatMoney(subtotal * 0.19)}
-                </span>
-              </div>
-              <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10 text-sm">
-                <span className="font-semibold">Bruttosumme</span>
-                <span className="tabular-nums text-right font-semibold">
-                  {formatMoney(subtotal * 1.19)}
-                </span>
-              </div>
+              <Totals subtotal={subtotal} vatRate={0.19} />
             </div>
           </div>
         )}
