@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,11 +12,11 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
  * - Per-Item-Rabatte mit Caps (Monatlich: XVPR/XVDV/XVMO 40%, XVTE 20%, XVCRM 20%, XVF2M 100%, XVPS 0)
  * - XVPS-Menge = XVPR + XVDV + XVMO (read-only)
- * - Setup-Pauschale (einmalig) abhängig von Summe (XVPR+XVDV+XVMO) über Tiers
- * - Hardware (einmalig) mit max. 10% Rabatt
+ * - Setup-Pauschale (einmalig) abhängig von Anzahl Kernlizenzen (XVPR+XVDV+XVMO), aus CSV (optional) oder Fallback
+ * - Hardware (einmalig) aus CSV (optional) oder Fallback, max. 10% Rabatt
  * - Angebots-HTML: klare Trennung monatlich vs. einmalig, Listen- vs. Angebotspreis, orange Trennlinie über CEO-Block
  * - Gleich breite Eingabefelder für Menge & Rabatt
- * - Stabile Preview/Download/Copy; keine problematischen 'as const' Rückgaben
+ * - Stabile Preview/Download/Copy
  */
 
 // ===== BRAND / COMPANY =====
@@ -44,14 +44,39 @@ const COMPANY = {
 type CatalogItem = {
   sku: string;
   name: string;
-  price: number; // Listenpreis (netto)
-  unit?: string; // z.B. "/Monat" oder "Stück"
+  price: number; // Listenpreis netto
+  unit?: string; // "/Monat" | "Stück" | ...
   desc?: string;
   billing: "monthly" | "one-time";
-  maxDiscountPct?: number; // Wenn nicht gesetzt: 0
+  maxDiscountPct?: number; // Cap je Position
 };
 
-// ===== KATALOG MONATLICH (Seite 1) =====
+type SetupTier = {
+  minLicenses: number;
+  maxLicenses: number; // inkl.; letzte Stufe Infinity
+  sku: string;
+  name: string;
+  price: number; // einmalig netto
+};
+
+type Customer = {
+  salutation: "Herr" | "Frau" | "";
+  company: string;
+  contact: string;
+  email: string;
+  phone: string;
+  street: string;
+  zip: string;
+  city: string;
+  notes: string;
+};
+type Salesperson = {
+  name: string;
+  email: string;
+  phone: string;
+};
+
+// ===== MONATLICHER KATALOG =====
 const MONTHLY: CatalogItem[] = [
   {
     sku: "XVPR",
@@ -119,84 +144,43 @@ const MONTHLY: CatalogItem[] = [
   },
 ];
 
-// ===== SETUP-PAUSCHALEN (einmalig, abhängig von Summe XVPR+XVDV+XVMO) =====
-type SetupTier = {
-  sku: string;
-  name: string;
-  price: number; // einmalig netto
-  minLicenses: number;
-  maxLicenses: number; // inkl.; letzte Stufe Infinity
-};
-const SETUP_TIERS: SetupTier[] = [
-  { sku: "XVSETUP-S",  name: "Installations- & Konfigurationspauschale (S)",  price: 149.0, minLicenses: 1,  maxLicenses: 9 },
-  { sku: "XVSETUP-M",  name: "Installations- & Konfigurationspauschale (M)",  price: 249.0, minLicenses: 10, maxLicenses: 24 },
-  { sku: "XVSETUP-L",  name: "Installations- & Konfigurationspauschale (L)",  price: 399.0, minLicenses: 25, maxLicenses: 49 },
-  { sku: "XVSETUP-XL", name: "Installations- & Konfigurationspauschale (XL)", price: 699.0, minLicenses: 50, maxLicenses: Number.POSITIVE_INFINITY },
+// ===== SETUP-TIERS: Fallback (falls keine /setup_tiers.csv) =====
+// CSV-Format (optional, im public/ ablegen):
+// minLicenses,maxLicenses,sku,name,price
+const SETUP_TIERS_FALLBACK: SetupTier[] = [
+  { minLicenses: 1,  maxLicenses: 9,  sku: "XVSETUP-S",  name: "Installations- & Konfigurationspauschale (S)",  price: 149.0 },
+  { minLicenses: 10, maxLicenses: 24, sku: "XVSETUP-M",  name: "Installations- & Konfigurationspauschale (M)",  price: 249.0 },
+  { minLicenses: 25, maxLicenses: 49, sku: "XVSETUP-L",  name: "Installations- & Konfigurationspauschale (L)",  price: 399.0 },
+  { minLicenses: 50, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVSETUP-XL", name: "Installations- & Konfigurationspauschale (XL)", price: 699.0 },
 ];
-function pickSetupTier(totalCoreSeats: number): SetupTier | null {
-  if (!Number.isFinite(totalCoreSeats) || totalCoreSeats <= 0) return null;
-  return SETUP_TIERS.find(t => totalCoreSeats >= t.minLicenses && totalCoreSeats <= t.maxLicenses) ?? null;
-}
 
-// ===== HARDWARE (einmalig, max. 10% Rabatt – Default) =====
+// ===== HARDWARE: Fallback (falls keine /hardware.csv) =====
+// CSV-Format (optional, im public/ ablegen):
+// sku,name,price,unit,desc,maxDiscountPct
 const HARDWARE_MAX_DEFAULT = 10;
-const HARDWARE: CatalogItem[] = [
+const HARDWARE_FALLBACK: CatalogItem[] = [
   { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 169.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
   { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
   { sku: "JAB-E65",  name: "Jabra Engage 65 Stereo Headset",  price: 219.0, billing: "one-time", unit: "Stück", desc: "DECT-Headset",         maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "SNO-D785", name: "Snom D785 IP-Telefon",            price: 159.0, billing: "one-time", unit: "Stück",                              maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "SNO-D785", name: "Snom D785 IP-Telefon",            price: 159.0, billing: "one-time", unit: "Stück",                                  maxDiscountPct: HARDWARE_MAX_DEFAULT },
 ];
 
 // ===== ENDPOINTS =====
 const EMAIL_ENDPOINT = "/api/send-offer";
 const ORDER_ENDPOINT = "/api/place-order";
 
-// ===== TYPES (Customer/Sales) =====
-type Customer = {
-  salutation: "Herr" | "Frau" | "";
-  company: string;
-  contact: string;
-  email: string;
-  phone: string;
-  street: string;
-  zip: string;
-  city: string;
-  notes: string;
-};
-type Salesperson = {
-  name: string;
-  email: string;
-  phone: string;
-};
-
 // ===== UTILS =====
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-  }).format(value);
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
 }
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 function escapeHtml(str: string) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 function fullCustomerAddress(c: Customer) {
-  const lines = [
-    c.company || "",
-    c.contact || "",
-    c.street || "",
-    [c.zip, c.city].filter(Boolean).join(" "),
-    c.email || "",
-    c.phone || "",
-  ].filter(Boolean);
+  const lines = [c.company || "", c.contact || "", c.street || "", [c.zip, c.city].filter(Boolean).join(" "), c.email || "", c.phone || ""].filter(Boolean);
   return lines.join("\n");
 }
 function greetingLine(c: Customer) {
@@ -204,8 +188,27 @@ function greetingLine(c: Customer) {
   if (!name) return "Guten Tag,";
   return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : `Sehr geehrter Herr ${name},`;
 }
+function detectDelimiter(headerLine: string) {
+  // simple heuristic
+  if (headerLine.includes(";") && !headerLine.includes(",")) return ";";
+  return ","; // default
+}
+function parseCsvLines(csv: string): string[][] {
+  // basic parser for unquoted/ simply quoted fields; handles ; or , based on header
+  const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const delim = detectDelimiter(lines[0]);
+  return lines.map(line => {
+    // very light parser: split by delim; trim quotes
+    return line.split(delim).map(cell => {
+      const t = cell.trim();
+      const m = t.match(/^"(.*)"$/);
+      return m ? m[1].replace(/""/g, '"') : t;
+    });
+  });
+}
 
-// ===== EMAIL HTML BUILDER =====
+// ===== EMAIL HTML =====
 type BuiltRow = {
   sku: string;
   name: string;
@@ -440,11 +443,11 @@ function buildEmailHtml(params: {
           <table width="100%" style="border-collapse:collapse">
             <tr>
               <td style="width:120px;vertical-align:top">
-                <img src="${ceoPhoto}" alt="Sebastian Brandl" style="width:100%;max-width:120px;border:1px solid #eee;border-radius:0;display:block" />
+                <img src="https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full" alt="Sebastian Brandl" style="width:100%;max-width:120px;border:1px solid #eee;border-radius:0;display:block" />
               </td>
               <td style="vertical-align:top;padding-left:20px">
                 <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go-Live.“</em></p>
-                <img src="${ceoSign}" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
+                <img src="https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
                 <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
               </td>
             </tr>
@@ -560,7 +563,7 @@ function ProductRow({
         )}
       </div>
 
-      {/* Menge & Rabatt: gleiche Breite (w-28 / w-28), in einer 2-Spalten-Grid */}
+      {/* Menge & Rabatt identische Breite */}
       <div className="grid grid-cols-2 gap-3 items-center">
         <div className="flex items-center gap-2">
           <Input
@@ -596,9 +599,7 @@ function ProductRow({
       </div>
 
       {helper ? (
-        <div className="col-span-4 -mt-2 text-xs text-muted-foreground">
-          {helper}
-        </div>
+        <div className="col-span-4 -mt-2 text-xs text-muted-foreground">{helper}</div>
       ) : null}
     </div>
   );
@@ -645,15 +646,80 @@ function Totals({
 
 // ===== PAGE =====
 export default function Page() {
-  // Mengen (für alle SKUs: monthly + hardware)
-  const ALL = [...MONTHLY, ...HARDWARE];
-  const [qty, setQty] = useState<Record<string, number>>(
-    Object.fromEntries(ALL.map((p) => [p.sku, 0]))
-  );
-  // Rabatte je SKU
-  const [discPct, setDiscPct] = useState<Record<string, number>>(
-    Object.fromEntries(ALL.map((p) => [p.sku, 0]))
-  );
+  // dynamische Kataloge (Hardware/Setup-Tiers können aus CSV kommen)
+  const [hardwareCatalog, setHardwareCatalog] = useState<CatalogItem[]>(HARDWARE_FALLBACK);
+  const [setupTiers, setSetupTiers] = useState<SetupTier[]>(SETUP_TIERS_FALLBACK);
+
+  // CSV laden (optional)
+  useEffect(() => {
+    // Hardware
+    fetch("/hardware.csv", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        const text = await r.text();
+        const rows = parseCsvLines(text);
+        if (rows.length < 2) return; // header + at least 1 row
+        const header = rows[0].map((h) => h.toLowerCase());
+        const idx = {
+          sku: header.indexOf("sku"),
+          name: header.indexOf("name"),
+          price: header.indexOf("price"),
+          unit: header.indexOf("unit"),
+          desc: header.indexOf("desc"),
+          maxDiscountPct: header.indexOf("maxdiscountpct"),
+        };
+        const list: CatalogItem[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const r = rows[i];
+          const sku = r[idx.sku] || "";
+          const name = r[idx.name] || "";
+          const price = parseFloat((r[idx.price] || "").replace(",", "."));
+          if (!sku || !name || !isFinite(price)) continue;
+          const unit = idx.unit >= 0 ? r[idx.unit] || undefined : undefined;
+          const desc = idx.desc >= 0 ? r[idx.desc] || undefined : undefined;
+          const maxDiscountPct = idx.maxDiscountPct >= 0 ? parseFloat((r[idx.maxDiscountPct] || "10").replace(",", ".")) : HARDWARE_MAX_DEFAULT;
+          list.push({ sku, name, price, unit, desc, billing: "one-time", maxDiscountPct: isFinite(maxDiscountPct) ? maxDiscountPct : HARDWARE_MAX_DEFAULT });
+        }
+        if (list.length > 0) setHardwareCatalog(list);
+      })
+      .catch(() => { /* fallback bleibt */ });
+
+    // Setup-Tiers
+    fetch("/setup_tiers.csv", { cache: "no-store" })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        const text = await r.text();
+        const rows = parseCsvLines(text);
+        if (rows.length < 2) return;
+        const header = rows[0].map((h) => h.toLowerCase());
+        const idx = {
+          minLicenses: header.indexOf("minlicenses"),
+          maxLicenses: header.indexOf("maxlicenses"),
+          sku: header.indexOf("sku"),
+          name: header.indexOf("name"),
+          price: header.indexOf("price"),
+        };
+        const tiers: SetupTier[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const r = rows[i];
+          const minLicenses = parseInt((r[idx.minLicenses] || "0").trim(), 10);
+          const maxLicensesRaw = (r[idx.maxLicenses] || "").trim();
+          const maxLicenses = maxLicensesRaw.toLowerCase() === "inf" || maxLicensesRaw === "" ? Number.POSITIVE_INFINITY : parseInt(maxLicensesRaw, 10);
+          const sku = r[idx.sku] || "";
+          const name = r[idx.name] || "";
+          const price = parseFloat((r[idx.price] || "").replace(",", "."));
+          if (!sku || !name || !isFinite(price) || !Number.isFinite(minLicenses) || !Number.isFinite(maxLicenses)) continue;
+          tiers.push({ minLicenses, maxLicenses, sku, name, price });
+        }
+        if (tiers.length > 0) setSetupTiers(tiers);
+      })
+      .catch(() => { /* fallback bleibt */ });
+  }, []);
+
+  // Mengen & Rabatte
+  const ALL = [...MONTHLY, ...hardwareCatalog]; // dynamisch
+  const [qty, setQty] = useState<Record<string, number>>(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
+  const [discPct, setDiscPct] = useState<Record<string, number>>(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
   const [vatRate] = useState(0.19);
 
   // Kunde / Vertrieb
@@ -668,27 +734,33 @@ export default function Page() {
     city: "",
     notes: "",
   });
-  const [salesperson, setSalesperson] = useState<Salesperson>({
-    name: "",
-    email: "vertrieb@xvoice-uc.de",
-    phone: "",
-  });
+  const [salesperson, setSalesperson] = useState<Salesperson>({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
-  // Automatische Menge XVPS = XVPR + XVDV + XVMO
-  const serviceAutoQty = useMemo(
-    () => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0),
-    [qty]
-  );
+  // XVPS automatisch
+  const serviceAutoQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
 
-  // Helper: Rabatt-Cap je SKU
+  // Bei dynamisch geladener Hardware müssen wir qty/disc ggf. erweitern
+  useEffect(() => {
+    setQty((prev) => {
+      const next = { ...prev };
+      for (const p of hardwareCatalog) if (!(p.sku in next)) next[p.sku] = 0;
+      return next;
+    });
+    setDiscPct((prev) => {
+      const next = { ...prev };
+      for (const p of hardwareCatalog) if (!(p.sku in next)) next[p.sku] = 0;
+      return next;
+    });
+  }, [hardwareCatalog]);
+
   function capForSku(sku: string) {
-    const item = ALL.find((i) => i.sku === sku);
-    return item?.maxDiscountPct ?? 0;
-    }
+    const found = ALL.find((i) => i.sku === sku);
+    return found?.maxDiscountPct ?? 0;
+  }
 
-  // MONATLICHE POSITIONEN
+  // Monatspositionen
   const monthlyRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of MONTHLY) {
@@ -700,7 +772,7 @@ export default function Page() {
       const cap = capForSku(p.sku);
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
-      const offerUnit = p.price * (1 - pct / 100);
+      const offerUnit = p.price * (pct ? (1 - pct / 100) : 1);
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
@@ -720,19 +792,23 @@ export default function Page() {
     return rows;
   }, [qty, discPct, serviceAutoQty]);
 
-  // SETUP-PAUSCHALE (einmalig) aus Tiers
-  const selectedSetup = useMemo(() => pickSetupTier(serviceAutoQty), [serviceAutoQty]);
+  // Setup aus Tiers
+  function pickSetupTier(totalCoreSeats: number): SetupTier | null {
+    if (!Number.isFinite(totalCoreSeats) || totalCoreSeats <= 0) return null;
+    return setupTiers.find(t => totalCoreSeats >= t.minLicenses && totalCoreSeats <= t.maxLicenses) ?? null;
+  }
+  const selectedSetup = useMemo(() => pickSetupTier(serviceAutoQty), [serviceAutoQty, setupTiers]);
 
-  // HARDWARE (einmalig)
+  // Hardware
   const hardwareRows = useMemo(() => {
     const rows: BuiltRow[] = [];
-    for (const p of HARDWARE) {
+    for (const p of hardwareCatalog) {
       const q = qty[p.sku] || 0;
       if (q <= 0) continue;
       const cap = capForSku(p.sku);
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
-      const offerUnit = p.price * (1 - pct / 100);
+      const offerUnit = p.price * (pct ? (1 - pct / 100) : 1);
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
@@ -750,13 +826,13 @@ export default function Page() {
       });
     }
     return rows;
-  }, [qty, discPct]);
+  }, [qty, discPct, hardwareCatalog]);
 
-  // EINMALIGE POSITIONEN = Setup + Hardware
+  // Einmalige Positionen zusammensetzen (Setup zuerst)
   const oneTimeRows = useMemo(() => {
-    const rows: BuiltRow[] = [...hardwareRows];
+    const rows: BuiltRow[] = [];
     if (selectedSetup) {
-      rows.unshift({
+      rows.push({
         sku: selectedSetup.sku,
         name: selectedSetup.name,
         desc:
@@ -769,10 +845,11 @@ export default function Page() {
         badgePct: 0,
       });
     }
+    rows.push(...hardwareRows);
     return rows;
   }, [hardwareRows, selectedSetup]);
 
-  // HTML
+  // HTML bauen
   const offerHtml = useMemo(
     () =>
       buildEmailHtml({
@@ -785,7 +862,7 @@ export default function Page() {
     [customer, salesperson, monthlyRows, oneTimeRows, vatRate]
   );
 
-  // UX state
+  // UX
   const [sending, setSending] = useState(false);
   const [sendOk, setSendOk] = useState(false);
   const [error, setError] = useState("");
@@ -799,9 +876,7 @@ export default function Page() {
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
       setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
+        try { URL.revokeObjectURL(url); } catch {}
       }, 5000);
       if (w) return;
     } catch {}
@@ -825,9 +900,7 @@ export default function Page() {
       a.click();
       document.body.removeChild(a);
       setTimeout(() => {
-        try {
-          URL.revokeObjectURL(url);
-        } catch {}
+        try { URL.revokeObjectURL(url); } catch {}
       }, 0);
       return;
     } catch {}
@@ -912,18 +985,8 @@ export default function Page() {
         monthlyRows,
         oneTimeRows,
         totals: {
-          monthly: {
-            netList: mList,
-            netOffer: mOffer,
-            vat: mOffer * vatRate,
-            gross: mOffer * (1 + vatRate),
-          },
-          oneTime: {
-            netList: oList,
-            netOffer: oOffer,
-            vat: oOffer * vatRate,
-            gross: oOffer * (1 + vatRate),
-          },
+          monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
+          oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
         },
         salesperson,
         recipients: [customer.email, salesEmail].filter(Boolean),
@@ -957,19 +1020,11 @@ export default function Page() {
   }
 
   function resetAll() {
-    setQty(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
-    setDiscPct(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
-    setCustomer({
-      salutation: "",
-      company: "",
-      contact: "",
-      email: "",
-      phone: "",
-      street: "",
-      zip: "",
-      city: "",
-      notes: "",
-    });
+    const baseQty = Object.fromEntries([...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0]));
+    const baseDisc = Object.fromEntries([...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0]));
+    setQty(baseQty);
+    setDiscPct(baseDisc);
+    setCustomer({ salutation: "", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
     setSalesperson({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
     setSendOk(false);
     setError("");
@@ -982,11 +1037,8 @@ export default function Page() {
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <Header />
 
-      {/* SECTION 1 – MONATLICHE LIZENZEN */}
-      <Section
-        title="1. Lizenzen (monatlich)"
-        action={<div className="text-xs opacity-70">USt. fest: 19%</div>}
-      >
+      {/* 1. Lizenzen (monatlich) */}
+      <Section title="1. Lizenzen (monatlich)" action={<div className="text-xs opacity-70">USt. fest: 19%</div>}>
         <div className="grid grid-cols-1 gap-2">
           <div className="grid grid-cols-[minmax(260px,1fr)_120px_260px_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
@@ -1000,14 +1052,10 @@ export default function Page() {
             const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
             const onQ = isService
               ? () => {}
-              : (v: number) =>
-                  setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+              : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
             const cap = item.maxDiscountPct ?? 0;
-            const onD = (v: number) =>
-              setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
-            const helper = isService
-              ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)"
-              : undefined;
+            const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+            const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
 
             return (
               <ProductRow
@@ -1025,20 +1073,13 @@ export default function Page() {
           })}
         </div>
 
-        {/* Totals (Monatlich) */}
         <div className="mt-4 flex items-start justify-between gap-6">
-          <div className="text-xs opacity-80">
-            Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.
-          </div>
-          <Totals
-            title="Monatliche Summe"
-            rows={monthlyRows}
-            vatRate={vatRate}
-          />
+          <div className="text-xs opacity-80">Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.</div>
+          <Totals title="Monatliche Summe" rows={monthlyRows} vatRate={vatRate} />
         </div>
       </Section>
 
-      {/* SECTION 2 – HARDWARE (einmalig) */}
+      {/* 2. Hardware (einmalig) */}
       <Section title="2. Hardware (einmalig)">
         <div className="grid grid-cols-1 gap-2">
           <div className="grid grid-cols-[minmax(260px,1fr)_120px_260px_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
@@ -1048,13 +1089,11 @@ export default function Page() {
             <div className="text-right">Summe</div>
           </div>
 
-          {HARDWARE.map((item) => {
+          {hardwareCatalog.map((item) => {
             const q = qty[item.sku] || 0;
-            const onQ = (v: number) =>
-              setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+            const onQ = (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
             const cap = item.maxDiscountPct ?? HARDWARE_MAX_DEFAULT;
-            const onD = (v: number) =>
-              setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+            const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
 
             return (
               <ProductRow
@@ -1071,28 +1110,27 @@ export default function Page() {
           })}
         </div>
 
-        {/* Setup-Pauschale Hinweis */}
         <div className="mt-3 text-xs text-muted-foreground">
-          Die Installations- & Konfigurationspauschale wird automatisch anhand der Gesamtsumme der Kernlizenzen (XVPR, XVDV, XVMO) ermittelt.
-          {selectedSetup
-            ? ` Aktuell zugeordnet: ${selectedSetup.name} (${formatMoney(selectedSetup.price)}).`
-            : " Wird angezeigt, sobald mindestens eine Kernlizenz gewählt wurde."}
+          Die Installations- & Konfigurationspauschale wird automatisch anhand der Anzahl der Kernlizenzen (XVPR, XVDV, XVMO) ermittelt.
+          {(() => {
+            const sel = setupTiers && setupTiers.length > 0 ? setupTiers.find(t => serviceAutoQty >= t.minLicenses && serviceAutoQty <= t.maxLicenses) : null;
+            return sel ? ` Aktuell zugeordnet: ${sel.name} (${formatMoney(sel.price)}).` : " Wird angezeigt, sobald mindestens eine Kernlizenz gewählt wurde.";
+          })()}
         </div>
 
-        {/* Totals (Einmalig) */}
         <div className="mt-4 flex items-start justify-between gap-6">
-          <div className="text-xs opacity-80">
-            Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.
-          </div>
-          <Totals
-            title="Einmalige Summe"
-            rows={oneTimeRows}
-            vatRate={vatRate}
-          />
+          <div className="text-xs opacity-80">Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.</div>
+          <Totals title="Einmalige Summe" rows={(() => {
+            const rows = [];
+            const sel = setupTiers.find(t => serviceAutoQty >= t.minLicenses && serviceAutoQty <= t.maxLicenses);
+            if (sel && serviceAutoQty > 0) rows.push({ listTotal: sel.price, offerTotal: sel.price });
+            for (const hr of hardwareRows) rows.push({ listTotal: hr.listTotal, offerTotal: hr.offerTotal });
+            return rows;
+          })()} vatRate={vatRate} />
         </div>
       </Section>
 
-      {/* Kundendaten & Versand */}
+      {/* 3. Kundendaten & Versand */}
       <Section title="Kundendaten & Versand">
         <div className="grid md:grid-cols-3 gap-4">
           <div className="flex items-center gap-2">
@@ -1100,97 +1138,40 @@ export default function Page() {
             <select
               className="border rounded-md h-10 px-3 text-sm"
               value={customer.salutation}
-              onChange={(e) =>
-                setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })
-              }
+              onChange={(e) => setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })}
             >
               <option value="">–</option>
               <option value="Herr">Herr</option>
               <option value="Frau">Frau</option>
             </select>
           </div>
-          <Input
-            placeholder="Ansprechpartner"
-            value={customer.contact}
-            onChange={(e) => setCustomer({ ...customer, contact: e.target.value })}
-          />
-          <Input
-            placeholder="Firma"
-            value={customer.company}
-            onChange={(e) => setCustomer({ ...customer, company: e.target.value })}
-          />
-          <Input
-            placeholder="E-Mail Kunde"
-            type="email"
-            value={customer.email}
-            onChange={(e) => setCustomer({ ...customer, email: e.target.value })}
-          />
-          <Input
-            placeholder="Telefon"
-            value={customer.phone}
-            onChange={(e) => setCustomer({ ...customer, phone: e.target.value })}
-          />
-          <Input
-            placeholder="Straße & Nr."
-            value={customer.street}
-            onChange={(e) => setCustomer({ ...customer, street: e.target.value })}
-          />
+          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
+          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
+          <Input placeholder="E-Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
+          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
+          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
           <div className="grid grid-cols-2 gap-2">
-            <Input
-              placeholder="PLZ"
-              value={customer.zip}
-              onChange={(e) => setCustomer({ ...customer, zip: e.target.value })}
-            />
-            <Input
-              placeholder="Ort"
-              value={customer.city}
-              onChange={(e) => setCustomer({ ...customer, city: e.target.value })}
-            />
+            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
+            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} />
           </div>
           <div className="md:col-span-3">
-            <Textarea
-              placeholder="Interne Notizen (optional)"
-              value={customer.notes}
-              onChange={(e) => setCustomer({ ...customer, notes: e.target.value })}
-            />
+            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })} />
           </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input
-              placeholder="Name Vertriebsmitarbeiter"
-              value={salesperson.name}
-              onChange={(e) => setSalesperson({ ...salesperson, name: e.target.value })}
-            />
-            <Input
-              placeholder="E-Mail Vertrieb"
-              type="email"
-              value={salesperson.email}
-              onChange={(e) => setSalesperson({ ...salesperson, email: e.target.value })}
-            />
-            <Input
-              placeholder="Telefon Vertrieb"
-              value={salesperson.phone}
-              onChange={(e) => setSalesperson({ ...salesperson, phone: e.target.value })}
-            />
+            <Input placeholder="Name Vertriebsmitarbeiter" value={salesperson.name} onChange={(e) => setSalesperson({ ...salesperson, name: e.target.value })} />
+            <Input placeholder="E-Mail Vertrieb" type="email" value={salesperson.email} onChange={(e) => setSalesperson({ ...salesperson, email: e.target.value })} />
+            <Input placeholder="Telefon Vertrieb" value={salesperson.phone} onChange={(e) => setSalesperson({ ...salesperson, phone: e.target.value })} />
           </div>
-          <Input
-            placeholder="Betreff"
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-          />
+          <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
         </div>
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 flex items-center gap-2">
             <Label className="text-sm">Vertrieb E-Mail (Kopie)</Label>
-            <Input
-              placeholder="vertrieb@xvoice-uc.de"
-              type="email"
-              value={salesEmail}
-              onChange={(e) => setSalesEmail(e.target.value)}
-            />
+            <Input placeholder="vertrieb@xvoice-uc.de" type="email" value={salesEmail} onChange={(e) => setSalesEmail(e.target.value)} />
           </div>
         </div>
 
@@ -1217,12 +1198,7 @@ export default function Page() {
           <Button onClick={handleDownloadHtml} className="gap-2" variant="outline">
             <Download size={16} /> HTML herunterladen
           </Button>
-          <Button
-            onClick={handleSendEmail}
-            disabled={sending}
-            className="gap-2"
-            style={{ backgroundColor: BRAND.primary }}
-          >
+          <Button onClick={handleSendEmail} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}>
             <Mail size={16} /> Angebot per Mail senden
           </Button>
           <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline">
@@ -1233,19 +1209,16 @@ export default function Page() {
           </Button>
         </div>
 
-        {sendOk && (
-          <div className="mt-3 flex items-center gap-2 text-green-700 text-sm">
-            <Check size={16} /> Erfolgreich übermittelt.
-          </div>
-        )}
+        {sendOk && <div className="mt-3 flex items-center gap-2 text-green-700 text-sm"><Check size={16} /> Erfolgreich übermittelt.</div>}
         {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
         {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
         {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
       </Section>
 
+      {/* Live-Zusammenfassung */}
       <Section title="Live-Zusammenfassung">
         <div className="grid md:grid-cols-2 gap-6">
-          {/* Monatsübersicht */}
+          {/* Monatlich */}
           <div>
             <div className="text-sm font-medium mb-2">Monatliche Positionen</div>
             {monthlyRows.length === 0 ? (
