@@ -10,10 +10,10 @@ import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-r
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
  * - 19% VAT fixed, % discount before VAT
- * - Auto XVPS (Premium Service) qty = XVPR + XVDV + XVMO
+ * - Auto XVPS qty = XVPR + XVDV + XVMO
  * - Salutation select (Herr/Frau), salesperson signature
- * - Stable preview (new tab), stable download, clipboard copy with fallback
- * - Email HTML builder per CI (black header, larger logo, gray address box)
+ * - Stable preview (new tab), stable download, clipboard copy fallback
+ * - Email HTML builder per CI (black header, larger logo, gray address box, spacing fixes)
  */
 
 // ===== BRAND / COMPANY =====
@@ -132,8 +132,8 @@ function escapeHtml(str: string) {
 }
 function fullCustomerAddress(c: Customer) {
   const lines = [
-    c.contact ? c.contact : "",
     c.company ? c.company : "",
+    c.contact ? c.contact : "",
     c.street ? c.street : "",
     [c.zip, c.city].filter(Boolean).join(" "),
   ].filter(Boolean);
@@ -186,7 +186,7 @@ function buildEmailHtml(params: {
     h1: `margin:0 0 8px 0;font-size:22px;color:${BRAND.dark}`,
     h3: `margin:0 0 8px 0;font-size:16px;color:${BRAND.dark}`,
     p: "margin:0 0 10px 0;font-size:14px;color:#333;line-height:1.6",
-    pSmall: "margin:0 0 8px 0;font-size:12px;color:#666",
+    pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
     li: "margin:0 0 4px 0;font-size:14px;color:#333",
     th:
       "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555",
@@ -227,7 +227,7 @@ function buildEmailHtml(params: {
         ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
         ${
           addressCustomer
-            ? `<div style="background:#f8f8f8;border-radius:6px;padding:10px 14px;margin-top:14px;margin-bottom:18px;line-height:1.5;font-size:13px;color:#333;">${escapeHtml(
+            ? `<div style="background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;">${escapeHtml(
                 addressCustomer
               ).replace(/\n/g, "<br>")}</div>`
             : ""
@@ -240,7 +240,7 @@ function buildEmailHtml(params: {
         <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
 
         <!-- Warum xVoice UC links | Client rechts -->
-        <table width="100%" style="margin:22px 0 24px 0;border-collapse:collapse">
+        <table width="100%" style="margin:26px 0 26px 0;border-collapse:collapse">
           <tr>
             <td style="vertical-align:top;width:55%;padding-right:20px">
               <h3 style="${s.h3}">Warum xVoice UC?</h3>
@@ -258,7 +258,7 @@ function buildEmailHtml(params: {
         </table>
 
         <!-- Positionen -->
-        <table width="100%" style="border-collapse:collapse;margin-top:14px">
+        <table width="100%" style="border-collapse:collapse;margin-top:6px">
           <thead>
             <tr>
               <th style="${s.th}">Position</th>
@@ -287,9 +287,7 @@ function buildEmailHtml(params: {
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}">Zwischensumme (netto)</td>
-              <td style="${s.totalRow}"><strong>${formatMoney(
-                subtotal
-              )}</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(subtotal)}</strong></td>
             </tr>
             ${
               discountAmount > 0
@@ -309,9 +307,7 @@ function buildEmailHtml(params: {
             <tr>
               <td colspan="2"></td>
               <td align="right" style="${s.totalRow}"><strong>Bruttosumme</strong></td>
-              <td style="${s.totalRow}"><strong>${formatMoney(
-                gross
-              )}</strong></td>
+              <td style="${s.totalRow}"><strong>${formatMoney(gross)}</strong></td>
             </tr>
           </tbody>
         </table>
@@ -322,33 +318,20 @@ function buildEmailHtml(params: {
           <a href="#" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
+        <!-- Vertriebsgruß -->
         <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <p style="${s.p}">Mit freundlichen Grüßen</p>
           ${
             salesperson.name
-              ? `<p style="${s.p}"><strong>${escapeHtml(
-                  salesperson.name
-                )}</strong></p>`
+              ? `<p style="${s.p}"><strong>${escapeHtml(salesperson.name)}</strong></p>`
               : ""
           }
-          ${
-            salesperson.phone
-              ? `<p style="${s.pSmall}">Tel. ${escapeHtml(
-                  salesperson.phone
-                )}</p>`
-              : ""
-          }
-          ${
-            salesperson.email
-              ? `<p style="${s.pSmall}">${escapeHtml(
-                  salesperson.email
-                )}</p>`
-              : ""
-          }
+          ${salesperson.phone ? `<p style="${s.pSmall}">Tel. ${escapeHtml(salesperson.phone)}</p>` : ""}
+          ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
         </div>
 
         <!-- CEO Block: Foto links, Text/Signatur rechts -->
-        <div style="margin-top:18px;border-top:1px solid #eee;padding-top:14px;">
+        <div style="margin-top:14px;border-top:1px solid #eee;padding-top:14px;">
           <table width="100%" style="border-collapse:collapse">
             <tr>
               <td style="width:120px;vertical-align:top">
@@ -393,12 +376,9 @@ function Header() {
         />
         <div>
           <div className="text-2xl font-semibold" style={{ color: BRAND.headerFg }}>
-            {/* bewusst keine Wortmarke im Header */}
+            {/* absichtlich keine Wortmarke im Header */}
           </div>
-          <div
-            className="text-sm opacity-80"
-            style={{ color: BRAND.headerFg }}
-          >
+          <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
             Angebots- und Bestell-Konfigurator
           </div>
         </div>
@@ -501,9 +481,7 @@ function Totals({
   }) => (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-10">
       <span className={strong ? "font-semibold" : undefined}>{label}</span>
-      <span
-        className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}
-      >
+      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>
         {value}
       </span>
     </div>
@@ -511,9 +489,7 @@ function Totals({
   return (
     <div className="space-y-1 text-sm">
       <Row label="Zwischensumme (netto)" value={formatMoney(subtotal)} />
-      {discountAmount > 0 && (
-        <Row label="Rabatt" value={"−" + formatMoney(discountAmount)} />
-      )}
+      {discountAmount > 0 && <Row label="Rabatt" value={"−" + formatMoney(discountAmount)} />}
       <Row label="Zwischensumme nach Rabatt" value={formatMoney(net)} />
       <Row label={`zzgl. USt. (19%)`} value={formatMoney(vat)} />
       <Row label="Bruttosumme" value={formatMoney(gross)} strong />
@@ -561,7 +537,6 @@ export default function Page() {
 
   const lineItems = useMemo(() => {
     return CATALOG.filter((p) => {
-      // auto rule: XVPS driven by serviceAutoQty
       if (p.sku === "XVPS") return serviceAutoQty > 0;
       return (qty[p.sku] || 0) > 0;
     }).map((p) => {
@@ -570,10 +545,7 @@ export default function Page() {
     });
   }, [qty, serviceAutoQty]);
 
-  const subtotal = useMemo(
-    () => lineItems.reduce((s, li) => s + li.total, 0),
-    [lineItems]
-  );
+  const subtotal = useMemo(() => lineItems.reduce((s, li) => s + li.total, 0), [lineItems]);
   const discountAmount = (Math.max(0, Math.min(100, discountPct)) / 100) * subtotal;
   const netAfterDiscount = Math.max(0, subtotal - discountAmount);
   const totals = {
@@ -619,8 +591,7 @@ export default function Page() {
       if (w) return;
     } catch {}
     try {
-      const dataUrl =
-        "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
+      const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       window.open(dataUrl, "_blank", "noopener");
     } catch (err) {
       setError("Vorschau blockiert: " + String(err));
@@ -647,8 +618,7 @@ export default function Page() {
     } catch {}
     try {
       const a = document.createElement("a");
-      a.href =
-        "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
+      a.href = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       a.download = `xvoice_angebot_${todayIso()}.html`;
       a.target = "_blank";
       a.rel = "noopener";
@@ -967,9 +937,7 @@ export default function Page() {
               const r = await safeCopyToClipboard(offerHtml);
               if (r.ok) setCopyOk(true);
               else {
-                setCopyError(
-                  "Kopieren blockiert. HTML wird stattdessen heruntergeladen."
-                );
+                setCopyError("Kopieren blockiert. HTML wird stattdessen heruntergeladen.");
                 handleDownloadHtml();
               }
             }}
@@ -1003,14 +971,8 @@ export default function Page() {
           </div>
         )}
         {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
-        {copyOk && (
-          <div className="mt-3 text-green-700 text-sm">
-            HTML in die Zwischenablage kopiert.
-          </div>
-        )}
-        {!!copyError && (
-          <div className="mt-3 text-amber-600 text-sm">{copyError}</div>
-        )}
+        {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
+        {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
       </Section>
 
       <Section title="Live-Zusammenfassung">
@@ -1027,19 +989,14 @@ export default function Page() {
               </div>
             ))}
             <div className="pt-2 border-t">
-              <Totals
-                subtotal={subtotal}
-                discountAmount={discountAmount}
-                vatRate={0.19}
-              />
+              <Totals subtotal={subtotal} discountAmount={discountAmount} vatRate={0.19} />
             </div>
           </div>
         )}
       </Section>
 
       <footer className="text-xs text-center opacity-70 pt-2">
-        © {new Date().getFullYear()} xVoice UC · Angebotserstellung · Alle
-        Angaben ohne Gewähr
+        © {new Date().getFullYear()} xVoice UC · Angebotserstellung · Alle Angaben ohne Gewähr
       </footer>
     </div>
   );
