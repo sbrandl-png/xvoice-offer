@@ -364,7 +364,7 @@ function ProductRow({
   const priceAfter = item.price * (1 - capped / 100);
 
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_120px_220px_140px] items-start gap-4 py-3 border-b last:border-none">
+    <div className="grid grid-cols-[minmax(260px,1fr)_120px_260px_140px] items-start gap-4 py-3 border-b last:border-none">
       <div>
         <div className="font-medium">{item.name}</div>
         <div className="text-xs text-muted-foreground">{item.sku} · {item.desc}</div>
@@ -398,8 +398,8 @@ function ProductRow({
             max={cap}
             step={0.5}
             value={capped}
-            onChange={(e) => onDiscountPct(clamp(Number(e.target.value || 0), 0, cap))}
-            className="w-32"
+            onChange={(e) => onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))}
+            className="w-40"
             disabled={cap === 0}
           />
           <span className="text-xs text-muted-foreground">max {cap}%</span>
