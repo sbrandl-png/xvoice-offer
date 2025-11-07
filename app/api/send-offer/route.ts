@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { offerHtml, subject, recipients, salesperson } = body || {};
 
-    // === 1. Umgebungsvariable prüfen ===
+    // 1. API-Key prüfen
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // === 2. E-Mail-Validierung ===
+    // 2. Eingaben prüfen
     if (!offerHtml || typeof offerHtml !== "string") {
       return NextResponse.json(
         { ok: false, error: "Fehler: Angebotsinhalt (HTML) fehlt oder ist ungültig." },
@@ -26,7 +26,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // === 3. Empfänger bestimmen ===
     const to =
       Array.isArray(recipients) && recipients.length > 0
         ? recipients
@@ -36,13 +35,12 @@ export async function POST(req: Request) {
     const replyTo = "vertrieb@xvoice-uc.de";
     const bcc = ["vertrieb@xvoice-uc.de"];
 
-    const mailSubject =
-      subject || "Ihr individuelles xVoice UC Angebot";
+    const mailSubject = subject || "Ihr individuelles xVoice UC Angebot";
 
-    // === 4. Resend-Client initialisieren ===
+    // 3. Resend initialisieren
     const resend = new Resend(apiKey);
 
-    // === 5. Versand ausführen ===
+    // 4. Versand
     const result = await resend.emails.send({
       from,
       to,
@@ -56,10 +54,12 @@ export async function POST(req: Request) {
       ],
     });
 
-    // === 6. Rückgabe an Frontend ===
+    // Neu: Rückgabe kompatibel mit aktueller Resend-API
+    const emailId = result?.data?.id ?? null;
+
     return NextResponse.json({
       ok: true,
-      id: result?.id ?? null,
+      id: emailId,
       message: "E-Mail erfolgreich übermittelt.",
     });
   } catch (err: any) {
@@ -67,15 +67,14 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         ok: false,
-        error:
-          err?.message || "Unbekannter Fehler beim E-Mail-Versand.",
+        error: err?.message || "Unbekannter Fehler beim E-Mail-Versand.",
       },
       { status: 500 }
     );
   }
 }
 
-// Optionaler GET-Handler für Healthcheck
+// Optionaler GET-Endpoint zum Healthcheck
 export async function GET() {
   return NextResponse.json({ ok: true, info: "send-offer endpoint ready" });
 }
