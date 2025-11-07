@@ -1,0 +1,5 @@
+min;max;sku;bezeichnung;preis
+1;10;XVIKS10;xVoice UC Installations- und Konfigurationspauschale bis 10 User;299.0
+11;20;XVIKS20;xVoice UC Installations- und Konfigurationspauschale bis 20 User;399.0
+21;50;XVIKS50;xVoice UC Installations- und Konfigurationspauschale bis 50 User;899.0
+50;99;XVIKS99;xVoice UC Installations- und Konfigurationspauschale bis 99 User;1299.0
