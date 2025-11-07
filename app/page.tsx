@@ -628,7 +628,7 @@ function ProductRow({
           step={1}
           value={qty}
           onChange={(e) => onQty(Number(e.target.value || 0))}
-          className="w-24"
+          className="w-full min-w-[96px] md:min-w-[110px]"
           disabled={!!readOnly}
         />
         <div className="flex items-center gap-2">
