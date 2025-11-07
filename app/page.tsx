@@ -374,8 +374,7 @@ function buildEmailHtml(params: {
         <table style="${s.headerTable}">
           <tr>
             <td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
-            <td style="text-align:right"><p style="${s.pSmall}">${COMPANY.web} · ${COMPANY.email} · ${COMPANY.phone}</p></td>
-          </tr>
+           </tr>
         </table>
       </div>
       <div style="${s.accent}"></div>
