@@ -163,8 +163,21 @@ const SETUP_TIERS_FALLBACK: SetupTier[] = [
 // sku,name,price,unit,desc,maxDiscountPct
 const HARDWARE_MAX_DEFAULT = 10;
 const HARDWARE_FALLBACK: CatalogItem[] = [
-  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 169.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 149.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T57W", name: "Yealink T57W IP-Telefon", price: 229.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T58W", name: "Yealink T58W IP-Telefon", price: 259.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T54W", name: "Yealink T58W pro IP-Telefon", price: 289.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi, schnurloser Hörer", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 109.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W74P", name: "Yealink W74P DECT-Basis + Hörer", price: 129.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W78P", name: "Yealink W78P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set",   desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W73H", name: "Yealink W73H Handset", price: 69.0, billing: "one-time", unit: "Set",   desc: "Mobilteil ink. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W74H", name: "Yealink W74H Handset", price: 89.0, billing: "one-time", unit: "Set",   desc: "Mobilteil ink. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W78H", name: "Yealink W78H Handset", price: 99.0, billing: "one-time", unit: "Set",   desc: "Mobilteil ink. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W90DM", name: "Yealink W90 DECT Manager", price: 249.0, billing: "one-time", unit: "Set",   desc: "DECT Multizellen Manager für grössere DECT Umgebungen", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W90B", name: "Yealink W90 DECT Base Station", price: 249.0, billing: "one-time", unit: "Set",   desc: "DECT Multizellen Basisstation für grössere DECT Umgebungen, erfodert in der Ersteinrichtung immer einen DECT Manager", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-WH64M", name: "Yealink WH64 mono Headset", price: 149.0, billing: "one-time", unit: "Set",   desc: "Monaurales Business Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT }, 
+  { sku: "YEA-WH64D", name: "Yealink WH64 duo Headset", price: 159.0, billing: "one-time", unit: "Set",   desc: "Biaurales Business Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT }, 
+  { sku: "YEA-WH68D", name: "Yealink WH68 duo hybrid Headset", price: 159.0, billing: "one-time", unit: "Set",   desc: "Biaurales Premium Business Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT }, 
   { sku: "JAB-E65",  name: "Jabra Engage 65 Stereo Headset",  price: 219.0, billing: "one-time", unit: "Stück", desc: "DECT-Headset",         maxDiscountPct: HARDWARE_MAX_DEFAULT },
   { sku: "SNO-D785", name: "Snom D785 IP-Telefon",            price: 159.0, billing: "one-time", unit: "Stück",                                  maxDiscountPct: HARDWARE_MAX_DEFAULT },
 ];
