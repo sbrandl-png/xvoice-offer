@@ -409,8 +409,8 @@ function buildEmailHtml(params: {
           ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
         </div>
 
-        <!-- Oranger Gedankenstrich als Trennung -->
-        <div style="text-align:center;margin:12px 0 18px 0;">
+        <!-- Vollbreiter Divider vor CEO-Block -->
+        <div style="height:2px;background:${BRAND.primary};margin:16px 0 18px 0;"></div>
           <span style="display:inline-block;font-size:22px;line-height:1;color:${BRAND.primary};">—</span>
         </div>
 
