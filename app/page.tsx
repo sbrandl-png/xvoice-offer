@@ -871,33 +871,37 @@ export default function Page() {
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
 
       // Token generieren (für Bestell-Button im HTML)
-      const offerId = "XVO-" + Date.now();
-      const token = signOrderPayload({
-        offerId,
-        customer: {
-          company: customer.company,
-          contact: customer.contact,
-          email: customer.email,
-          phone: customer.phone,
-        },
-        salesperson,
-        monthlyRows: monthlyRows.map(r => ({
-          sku: r.sku,
-          name: r.name,
-          quantity: r.quantity,
-          unit: r.offerUnit,
-          total: r.offerTotal,
-        })),
-        oneTimeRows: oneTimeRows.map(r => ({
-          sku: r.sku,
-          name: r.name,
-          quantity: r.quantity,
-          unit: r.offerUnit,
-          total: r.offerTotal,
-        })),
-        vatRate,
-        createdAt: Date.now(),
-      });
+const offerId = "XVO-" + Date.now();
+const token = signOrderPayload({
+  offerId,
+  customer: {
+    company: customer.company,
+    contact: customer.contact,
+    email: customer.email,
+    phone: customer.phone,
+  },
+  salesperson,
+  monthlyRows: monthlyRows.map(r => ({
+    sku: r.sku,
+    name: r.name,
+    quantity: r.quantity,
+    listUnit: r.listUnit,
+    offerUnit: r.offerUnit,
+    listTotal: r.listTotal,
+    offerTotal: r.offerTotal,
+  })),
+  oneTimeRows: oneTimeRows.map(r => ({
+    sku: r.sku,
+    name: r.name,
+    quantity: r.quantity,
+    listUnit: r.listUnit,
+    offerUnit: r.offerUnit,
+    listTotal: r.listTotal,
+    offerTotal: r.offerTotal,
+  })),
+  vatRate,
+  createdAt: Date.now(),
+});
 
       // Token im HTML einsetzen
       const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
