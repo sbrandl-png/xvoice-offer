@@ -1,8 +1,7 @@
 // app/order/page.tsx
 import React from "react";
-import { headers } from "next/headers";
 
-// Laufzeit & Rendering auf Request erzwingen (damit ENV zur Request-Zeit gelesen wird)
+// Server-only: ENV zur Request-Zeit lesen
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,47 +17,84 @@ type OrderPayload = {
   createdAt: number;
 };
 
-// ---- serverseitige JWT-Helfer (HMAC-SHA256, base64url) ----
-function b64url(bytes: Uint8Array) {
-  const b64 = Buffer.from(bytes).toString("base64");
-  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function b64urlDecode(s: string) {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
-  return Buffer.from(b64, "base64");
+// ---------- helpers ----------
+function b64urlToBuffer(s: string): Buffer {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
+  const padLen = (4 - (b64.length % 4)) % 4;
+  const b64p = b64 + "=".repeat(padLen);
+  return Buffer.from(b64p, "base64");
 }
 
-async function verifyOrderTokenServer(token: string): Promise<
+async function safeParsePayload(buf: Buffer): Promise<any> {
+  // 1) direkter UTF-8 JSON Versuch
+  try {
+    return JSON.parse(buf.toString("utf8"));
+  } catch (_) {}
+
+  // 2) zlib/gzip erkennen & entpacken
+  const zlib = await import("zlib");
+  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+  const looksZlib = buf.length >= 2 && (buf[0] === 0x78 && (buf[1] === 0x01 || buf[1] === 0x9c || buf[1] === 0xda));
+
+  if (isGzip) {
+    const unzipped = zlib.gunzipSync(buf);
+    return JSON.parse(unzipped.toString("utf8"));
+  }
+  if (looksZlib) {
+    const inflated = zlib.inflateSync(buf);
+    return JSON.parse(inflated.toString("utf8"));
+  }
+
+  // 3) letzter Versuch: latin1->utf8
+  try {
+    return JSON.parse(Buffer.from(buf.toString("binary"), "binary").toString("utf8"));
+  } catch (e) {
+    throw new Error(`Payload nicht lesbar: ${String((e as Error).message || e)}`);
+  }
+}
+
+async function verifyOrderTokenServer(tokenRaw: string): Promise<
   | { ok: true; payload: OrderPayload; unsigned?: boolean }
   | { ok: false; error: string }
 > {
   try {
-    if (!token) return { ok: false, error: "Kein Token" };
+    if (!tokenRaw) return { ok: false, error: "Kein Token" };
+    // Token aus URL holen (einmal decodieren – nicht doppelt!)
+    let token = tokenRaw;
+    try { token = decodeURIComponent(tokenRaw); } catch {}
+
     const parts = token.split(".");
     if (parts.length < 2) return { ok: false, error: "Ungültiges Token-Format" };
 
     const [h, p, s = ""] = parts;
-    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg: "HS256" | "none"; typ: string };
-    const payload = JSON.parse(b64urlDecode(p).toString("utf8")) as OrderPayload;
-    const msg = `${h}.${p}`;
-    const secret = process.env.ORDER_SECRET;
 
+    // Header lesen
+    const headerBuf = b64urlToBuffer(h);
+    let header: { alg: "HS256" | "none"; typ?: string };
+    try {
+      header = JSON.parse(headerBuf.toString("utf8"));
+    } catch {
+      return { ok: false, error: "Header nicht lesbar" };
+    }
+
+    // Payload robust parsen (siehe safeParsePayload)
+    const payloadBuf = b64urlToBuffer(p);
+    const payload = await safeParsePayload(payloadBuf);
+
+    // Signatur prüfen (außer alg: none)
     if (header.alg === "none") {
       return { ok: true, payload, unsigned: true };
     }
 
-    if (!secret) {
-      // Secret fehlt auf dem Server (falsches Env / nicht gesetzt)
-      return { ok: false, error: "ORDER_SECRET ist nicht gesetzt." };
-    }
+    const secret = process.env.ORDER_SECRET;
+    if (!secret) return { ok: false, error: "ORDER_SECRET ist nicht gesetzt." };
 
-    // HMAC SHA256 prüfen
     const crypto = await import("crypto");
+    const msg = Buffer.from(`${h}.${p}`, "utf8");
     const mac = crypto.createHmac("sha256", secret).update(msg).digest();
-    const given = b64urlDecode(s);
+    const given = b64urlToBuffer(s);
 
     if (given.length !== mac.length) return { ok: false, error: "Signaturlänge inkonsistent" };
-    // timing-safe compare
     if (!crypto.timingSafeEqual(given, mac)) return { ok: false, error: "Signatur ungültig" };
 
     return { ok: true, payload };
@@ -67,24 +103,16 @@ async function verifyOrderTokenServer(token: string): Promise<
   }
 }
 
-// ---- Server Component: bekommt searchParams vom App Router ----
+// ---------- Server Component ----------
 export default async function OrderPage({
   searchParams,
 }: {
   searchParams: { token?: string };
 }) {
-  const tokenRaw = searchParams?.token || "";
-  const token = (() => {
-    try {
-      return decodeURIComponent(tokenRaw);
-    } catch {
-      return tokenRaw;
-    }
-  })();
+  const tokenParam = searchParams?.token || "";
+  const result = await verifyOrderTokenServer(tokenParam);
 
-  const result = await verifyOrderTokenServer(token);
-
-  if (!token) {
+  if (!tokenParam) {
     return (
       <main className="max-w-2xl mx-auto p-6">
         <h1 className="text-2xl font-semibold mb-2">Ungültiger oder beschädigter Bestelllink</h1>
@@ -136,7 +164,7 @@ export default async function OrderPage({
             {payload.monthlyRows.map((r, i) => (
               <li key={`m-${i}`} className="flex justify-between">
                 <span>{r.quantity}× {r.name} ({r.sku})</span>
-                <span className="tabular-nums">{(r.total).toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+                <span className="tabular-nums">{r.total.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
               </li>
             ))}
           </ul>
@@ -160,7 +188,7 @@ export default async function OrderPage({
             {payload.oneTimeRows.map((r, i) => (
               <li key={`o-${i}`} className="flex justify-between">
                 <span>{r.quantity}× {r.name} ({r.sku})</span>
-                <span className="tabular-nums">{(r.total).toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+                <span className="tabular-nums">{r.total.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
               </li>
             ))}
           </ul>
@@ -176,7 +204,7 @@ export default async function OrderPage({
       </section>
 
       <form action="/api/place-order" method="post" className="space-y-3">
-        <input type="hidden" name="token" value={token} />
+        <input type="hidden" name="token" value={decodeURIComponent(tokenParam)} />
         <button
           type="submit"
           className="inline-flex items-center px-4 py-2 rounded-md text-white"
