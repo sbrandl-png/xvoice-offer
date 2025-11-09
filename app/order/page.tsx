@@ -26,11 +26,7 @@ function Section({
 /** Lokaler Hilfstyp: Rows dürfen optional eine Beschreibung enthalten */
 type RowMaybeDesc = OrderRow & { desc?: string };
 
-function RowsTable({
-  rows,
-}: {
-  rows: RowMaybeDesc[];
-}) {
+function RowsTable({ rows }: { rows: RowMaybeDesc[] }) {
   if (!rows?.length) {
     return <div className="text-sm text-zinc-500">Keine Positionen.</div>;
   }
@@ -46,58 +42,69 @@ function RowsTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={`${r.sku}`} className="border-b last:border-b-0">
-              <td className="py-2 pr-4 align-top">
-                <div className="font-medium">{r.name}</div>
-                {r.desc ? (
-                  <div className="text-xs text-zinc-500">{r.desc}</div>
-                ) : null}
-                <div className="text-xs text-zinc-500">{r.sku}</div>
-              </td>
-              <td className="py-2 pr-4 align-top">{r.quantity}</td>
-              <td className="py-2 pr-4 align-top">
-                {r.offerUnit !== r.listUnit ? (
-                  <div className="space-x-2">
-                    <span className="line-through opacity-60">
-                      {fmtMoney(r.listUnit)}
-                    </span>
-                    <span className="font-semibold text-orange-600">
-                      {fmtMoney(r.offerUnit)}
-                    </span>
-                    {typeof r.badgePct === "number" && r.badgePct > 0 ? (
-                      <span className="inline-block text-[11px] px-2 py-[2px] rounded-full text-white bg-orange-600 align-middle">
-                        -{r.badgePct}%
+          {rows.map((r) => {
+            const hasDiscount = r.offerUnit < r.listUnit - 1e-9;
+            const badgePct = hasDiscount
+              ? Math.max(0, Math.round((1 - r.offerUnit / r.listUnit) * 100))
+              : 0;
+
+            return (
+              <tr key={`${r.sku}`} className="border-b last:border-b-0">
+                <td className="py-2 pr-4 align-top">
+                  <div className="font-medium">{r.name}</div>
+                  {r.desc ? (
+                    <div className="text-xs text-zinc-500">{r.desc}</div>
+                  ) : null}
+                  <div className="text-xs text-zinc-500">{r.sku}</div>
+                </td>
+
+                <td className="py-2 pr-4 align-top">{r.quantity}</td>
+
+                <td className="py-2 pr-4 align-top">
+                  {hasDiscount ? (
+                    <div className="space-x-2">
+                      <span className="line-through opacity-60">
+                        {fmtMoney(r.listUnit)}
                       </span>
-                    ) : null}
-                  </div>
-                ) : (
-                  <span>{fmtMoney(r.offerUnit)}</span>
-                )}
-              </td>
-              <td className="py-2 pr-0 align-top text-right">
-                {r.offerTotal !== r.listTotal ? (
-                  <div className="space-x-2">
-                    <span className="line-through opacity-60">
-                      {fmtMoney(r.listTotal)}
-                    </span>
+                      <span className="font-semibold text-orange-600">
+                        {fmtMoney(r.offerUnit)}
+                      </span>
+                      {badgePct > 0 ? (
+                        <span className="inline-block text-[11px] px-2 py-[2px] rounded-full text-white bg-orange-600 align-middle">
+                          -{badgePct}%
+                        </span>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <span>{fmtMoney(r.offerUnit)}</span>
+                  )}
+                </td>
+
+                <td className="py-2 pr-0 align-top text-right">
+                  {r.offerTotal !== r.listTotal ? (
+                    <div className="space-x-2">
+                      <span className="line-through opacity-60">
+                        {fmtMoney(r.listTotal)}
+                      </span>
+                      <span className="font-semibold">
+                        {fmtMoney(r.offerTotal)}
+                      </span>
+                    </div>
+                  ) : (
                     <span className="font-semibold">
                       {fmtMoney(r.offerTotal)}
                     </span>
-                  </div>
-                ) : (
-                  <span className="font-semibold">
-                    {fmtMoney(r.offerTotal)}
-                  </span>
-                )}
-              </td>
-            </tr>
-          ))}
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
+
 
 function Totals({
   rows,
