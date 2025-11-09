@@ -1014,20 +1014,30 @@ export default function Page() {
         phone: customer.phone,
       },
       salesperson,
-      monthlyRows: monthlyRows.map(r => ({
-        sku: r.sku,
-        name: r.name,
-        quantity: r.quantity,
-        unit: r.offerUnit,
-        total: r.offerTotal,
-      })),
-      oneTimeRows: oneTimeRows.map(r => ({
-        sku: r.sku,
-        name: r.name,
-        quantity: r.quantity,
-        unit: r.offerUnit,
-        total: r.offerTotal,
-      })),
+      // ✅ neu (passend zu OrderRow)
+monthlyRows: monthlyRows.map(r => ({
+  sku: r.sku,
+  name: r.name,
+  quantity: r.quantity,
+  listUnit: r.listUnit,
+  offerUnit: r.offerUnit,
+  listTotal: r.listTotal,
+  offerTotal: r.offerTotal,
+  // optional – nur wenn du’s anzeigen willst:
+  desc: r.desc,
+})),
+
+oneTimeRows: oneTimeRows.map(r => ({
+  sku: r.sku,
+  name: r.name,
+  quantity: r.quantity,
+  listUnit: r.listUnit,
+  offerUnit: r.offerUnit,
+  listTotal: r.listTotal,
+  offerTotal: r.offerTotal,
+  // optional
+  desc: r.desc,
+})),
       vatRate,
       createdAt: Date.now(),
     });
