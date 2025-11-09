@@ -5,7 +5,7 @@ import crypto from "crypto";
 export const metadata: Metadata = { title: "xVoice UC – Bestellung prüfen" };
 export const dynamic = "force-dynamic";
 
-// ---- Datentypen (entsprechend dem Signer) ----
+// ------- Typen (passend zum Signer) -------
 type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
 type OrderPayload = {
   offerId: string;
@@ -17,7 +17,7 @@ type OrderPayload = {
   createdAt: number;
 };
 
-// ---- Utils ----
+// ------- Utils -------
 function cleanToken(raw?: string): string {
   if (!raw) return "";
   let t = raw.trim();
@@ -26,7 +26,6 @@ function cleanToken(raw?: string): string {
   if (m) t = m[1];
   if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) t = t.slice(1, -1);
   t = t.replace(/^<+|>+$/g, "").replace(/&amp;/g, "&").replace(/[\u200B-\u200D\uFEFF]/g, "").replace(/\s+/g, "");
-  // nur erlaubte Zeichen
   return t.replace(/[^A-Za-z0-9._-]/g, "");
 }
 function b64urlToBuf(b64url: string): Buffer {
@@ -34,74 +33,64 @@ function b64urlToBuf(b64url: string): Buffer {
   const pad = b64.length % 4;
   return Buffer.from(pad ? b64 + "=".repeat(4 - pad) : b64, "base64");
 }
-function bufToB64(buf: Buffer) {
-  return buf.toString("base64").replace(/=+$/g, "");
-}
-function bufToB64url(buf: Buffer) {
-  return bufToB64(buf).replace(/\+/g, "-").replace(/\//g, "_");
-}
+function bufToB64(buf: Buffer) { return buf.toString("base64").replace(/=+$/g, ""); }
+function bufToB64url(buf: Buffer) { return bufToB64(buf).replace(/\+/g, "-").replace(/\//g, "_"); }
 function isHex(s: string) { return /^[0-9a-fA-F]+$/.test(s) && s.length % 2 === 0; }
 function tryDecodeSecretVariants(secretRaw: string): Buffer[] {
-  const variants: Buffer[] = [];
-  // UTF-8 direkt
-  variants.push(Buffer.from(secretRaw, "utf8"));
-  // Base64, falls gültig
-  try {
-    const b = Buffer.from(secretRaw, "base64");
-    if (b.length) variants.push(b);
-  } catch {}
-  // Hex, falls gültig
-  if (isHex(secretRaw)) {
-    try { variants.push(Buffer.from(secretRaw, "hex")); } catch {}
-  }
-  // Doppelt decodiert (manchmal Base64url)
-  try { variants.push(b64urlToBuf(secretRaw)); } catch {}
-  // Duplikate entfernen
-  const uniq: Buffer[] = [];
-  for (const v of variants) if (!uniq.some(u => u.equals(v))) uniq.push(v);
-  return uniq;
+  const out: Buffer[] = [];
+  const push = (b: Buffer) => { if (b.length && !out.some(x => x.equals(b))) out.push(b); };
+  push(Buffer.from(secretRaw, "utf8"));
+  try { push(Buffer.from(secretRaw, "base64")); } catch {}
+  if (isHex(secretRaw)) { try { push(Buffer.from(secretRaw, "hex")); } catch {} }
+  try { push(b64urlToBuf(secretRaw)); } catch {}
+  return out;
 }
 function formatMoneyEUR(v: number) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(v);
 }
 function niceTs(ts: number) { return new Date(ts).toLocaleString("de-DE"); }
 
-// ---- Signatur-Check mit Fallbacks ----
-function verifySignatureFlexible(unsigned: string, sigProvided: string, secretRaw: string): boolean {
-  const sig = sigProvided.replace(/=+$/g, ""); // toleranter Vergleich
-  const secretCandidates = tryDecodeSecretVariants(secretRaw);
+// ------- flexible Signature-Checks -------
+function makeMac(buf: Buffer | string, key: Buffer) {
+  return crypto.createHmac("sha256", key).update(buf).digest();
+}
+function equalLoose(expected: string, provided: string): boolean {
+  const norm = (s: string) => s.replace(/=+$/g, "");
+  const a = norm(expected);
+  const b = norm(provided);
+  // direkter Vergleich
+  if (a.length === b.length) {
+    try { return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b)); } catch {}
+  }
+  // URL/Base64 Normalisierung
+  if (a.replace(/\+/g, "-").replace(/\//g, "_") === b) return true;
+  if (a.replace(/-/g, "+").replace(/_/g, "/") === b) return true;
+  return false;
+}
 
-  // Erzeuge Vergleichskandidaten für jede Secret-Variante
-  for (const key of secretCandidates) {
-    const mac = crypto.createHmac("sha256", key).update(unsigned).digest();
-
-    const candidates = [
-      bufToB64url(mac),                    // Base64url (üblich bei JWT)
-      bufToB64(mac),                       // Base64 (ohne Padding)
-      mac.toString("base64"),              // Base64 (mit evtl. Padding)
-      mac.toString("hex"),                 // Hex
-      mac.toString("base64url" as any) ?? "" // Node >= 19
-    ]
-      .filter(Boolean)
-      .map(s => s.replace(/=+$/g, "")); // Padding tolerant
-
-    for (const exp of candidates) {
-      if (exp.length === sig.length) {
-        try {
-          if (crypto.timingSafeEqual(Buffer.from(exp), Buffer.from(sig))) return true;
-        } catch {}
-      }
-      // zusätzlich: erlaub’ kleine Formatunterschiede (URL vs. Standard-Base64)
-      if (
-        exp.replace(/\+/g, "-").replace(/\//g, "_") === sig ||
-        exp.replace(/-/g, "+").replace(/_/g, "/") === sig
-      ) return true;
+function verifySignatureFlexible(unsignedCandidates: (string|Buffer)[], sigProvided: string, secretRaw: string): boolean {
+  const sig = sigProvided.replace(/=+$/g, "");
+  const secrets = tryDecodeSecretVariants(secretRaw);
+  for (const key of secrets) {
+    for (const msg of unsignedCandidates) {
+      const mac = makeMac(msg, key);
+      // Kandidaten für Signatur-String
+      const candidates = [
+        bufToB64url(mac),                // base64url
+        bufToB64(mac),                   // base64 (no pad)
+        mac.toString("base64"),          // base64 (pad)
+        mac.toString("hex"),             // hex
+        // hex-as-ascii => b64url / b64 (für exotische Client-Implementierungen)
+        bufToB64url(Buffer.from(mac.toString("hex"), "utf8")),
+        bufToB64(Buffer.from(mac.toString("hex"), "utf8")),
+      ];
+      if (candidates.some(c => equalLoose(c, sig))) return true;
     }
   }
   return false;
 }
 
-// ---- Token-Verify (unterstützt Header 'plain' oder regulär b64url) ----
+// ------- Token-Verify (unterstützt 'plain'-Header & Payload-only-Signatur) -------
 async function verifyOrderTokenServer(token: string): Promise<{ ok: true; payload: OrderPayload } | { ok: false; error: string }> {
   if (!token) return { ok: false, error: "Kein Token übergeben" };
   const ORDER_SECRET = process.env.ORDER_SECRET;
@@ -111,32 +100,33 @@ async function verifyOrderTokenServer(token: string): Promise<{ ok: true; payloa
   if (parts.length !== 3) return { ok: false, error: "Token-Format ungültig (Teile != 3)" };
   const [h, p, s] = parts;
 
-  // Header lesen (unterstütze 'plain' als Klartext)
+  // Header
   let alg = "HS256";
   if (h !== "plain") {
-    try {
-      const headerJson = JSON.parse(b64urlToBuf(h).toString("utf8"));
-      alg = String(headerJson?.alg || "HS256");
-    } catch {
-      return { ok: false, error: "Header nicht lesbar" };
-    }
+    try { alg = String(JSON.parse(b64urlToBuf(h).toString("utf8"))?.alg || "HS256"); }
+    catch { return { ok: false, error: "Header nicht lesbar" }; }
   }
   if (alg !== "HS256") return { ok: false, error: `Unerwarteter Algorithmus: ${alg}` };
 
-  // Payload lesen
+  // Payload
   let payloadJson: any;
-  try {
-    payloadJson = JSON.parse(b64urlToBuf(p).toString("utf8"));
-  } catch {
-    return { ok: false, error: "Payload nicht lesbar" };
-  }
+  try { payloadJson = JSON.parse(b64urlToBuf(p).toString("utf8")); }
+  catch { return { ok: false, error: "Payload nicht lesbar" }; }
 
-  // Signatur prüfen
-  const unsigned = `${h}.${p}`;
-  const ok = verifySignatureFlexible(unsigned, s, ORDER_SECRET);
+  // Unsigned-Kandidaten:
+  // 1) klassisch: "header.payload"
+  // 2) abweichend: nur "payload"
+  const unsignedCandidates: (string|Buffer)[] = [
+    `${h}.${p}`,
+    p,
+    // Roh-JSON-String (falls Client nicht b64url nutzt)
+    Buffer.from(JSON.stringify(payloadJson), "utf8"),
+  ];
+
+  const ok = verifySignatureFlexible(unsignedCandidates, s, ORDER_SECRET);
   if (!ok) return { ok: false, error: "Signatur ungültig" };
 
-  // Basis-Validierung der Struktur
+  // Struktur prüfen
   const pl = payloadJson as OrderPayload;
   if (!pl || typeof pl.offerId !== "string" || !Array.isArray(pl.monthlyRows) || !Array.isArray(pl.oneTimeRows) || typeof pl.vatRate !== "number") {
     return { ok: false, error: "Payload unvollständig oder ungültig" };
@@ -144,7 +134,7 @@ async function verifyOrderTokenServer(token: string): Promise<{ ok: true; payloa
   return { ok: true, payload: pl };
 }
 
-// ---- Page (Server Component, kein useSearchParams) ----
+// ------- Page (Server Component) -------
 export default async function OrderPage({ searchParams }: { searchParams?: { token?: string } }) {
   const token = cleanToken(searchParams?.token);
   const verify = await verifyOrderTokenServer(token);
