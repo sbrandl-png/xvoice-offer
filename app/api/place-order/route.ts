@@ -1,204 +1,312 @@
 // app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createHmac, timingSafeEqual } from "crypto";
 
-export const runtime = "nodejs";
-
-// ---------- Helpers ----------
-function apiError(status: number, message: string) {
-  return new Response(message, {
-    status,
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+// ---- Helpers: base64url, HMAC, JWT sign/verify (HS256) -----------------
+function b64url(input: Uint8Array | string) {
+  const b64 = typeof input === "string"
+    ? Buffer.from(input, "utf8").toString("base64")
+    : Buffer.from(input).toString("base64");
+  return b64.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
-function json(data: any, init?: ResponseInit) {
-  return new NextResponse(JSON.stringify(data), {
-    status: 200,
-    headers: { "Content-Type": "application/json; charset=utf-8" },
-    ...init,
-  });
+function b64urlDecode(s: string) {
+  const pad = s.length % 4 === 2 ? "==" : s.length % 4 === 3 ? "=" : "";
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + pad;
+  return Buffer.from(b64, "base64");
 }
-function getEnv(name: string) {
-  const v = process.env[name];
-  if (!v) {
-    const hint =
-      name === "ORDER_SECRET"
-        ? "Setze in Vercel ORDER_SECRET (32+ zufällige Bytes als sicherer String)."
-        : `Environment Variable ${name} fehlt.`;
-    throw apiError(500, `${name} ist nicht gesetzt. ${hint}`);
-  }
-  return v;
+async function hmacSha256(key: Uint8Array, data: string) {
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(data));
+  return new Uint8Array(sig);
 }
 
-function b64urlEncode(buf: Buffer) {
-  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function b64urlFromJSON(obj: any) {
-  const json = Buffer.from(JSON.stringify(obj), "utf8");
-  return b64urlEncode(json);
-}
-function b64urlToBuffer(b64url: string) {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  const padLen = (4 - (b64.length % 4)) % 4;
-  return Buffer.from(b64 + "=".repeat(padLen), "base64");
-}
-
-function signHS256(data: string, secret: string) {
-  const h = createHmac("sha256", Buffer.from(secret, "utf8"));
-  h.update(data);
-  return b64urlEncode(h.digest());
-}
-function safeTimingEqual(a: Buffer, b: Buffer) {
-  if (a.length !== b.length) return false;
-  try {
-    return timingSafeEqual(a, b);
-  } catch {
-    return false;
-  }
-}
-
-// ---------- Types ----------
 type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
-type OrderPayloadBase = {
+type OrderPayload = {
   offerId: string;
   customer: { company?: string; contact?: string; email?: string; phone?: string };
   monthlyRows: OrderRow[];
   oneTimeRows: OrderRow[];
   vatRate: number;
   createdAt: number;
-  // JWT Felder optional:
-  iat?: number;
+  // optional: exp, iat (falls vom Signieren gesetzt)
   exp?: number;
+  iat?: number;
 };
-function isOrderPayload(p: any): p is OrderPayloadBase {
-  return (
-    p &&
-    typeof p === "object" &&
-    typeof p.offerId === "string" &&
-    p.customer &&
-    typeof p.customer === "object" &&
-    Array.isArray(p.monthlyRows) &&
-    Array.isArray(p.oneTimeRows) &&
-    typeof p.vatRate === "number" &&
-    typeof p.createdAt === "number"
-  );
+
+function isOrderPayload(v: any): v is OrderPayload {
+  return !!v
+    && typeof v.offerId === "string"
+    && v.customer && typeof v.customer === "object"
+    && Array.isArray(v.monthlyRows) && Array.isArray(v.oneTimeRows)
+    && typeof v.vatRate === "number"
+    && typeof v.createdAt === "number";
 }
 
-// ---------- JWT ----------
-function makeToken(payload: OrderPayloadBase, secret: string, kid = "xv1") {
-  const header = { alg: "HS256", typ: "JWT", kid };
-  const part1 = b64urlFromJSON(header);
-  const part2 = b64urlFromJSON(payload);
-  const data = `${part1}.${part2}`;
-  const sig = signHS256(data, secret);
-  return `${data}.${sig}`;
+const BRAND = {
+  primary: "#ff4e00",
+  headerBg: "#000000",
+  headerFg: "#ffffff",
+  logoUrl: "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
+};
+const COMPANY = {
+  legal: "xVoice UC UG (Haftungsbeschränkt)",
+  street: "Peter-Müller-Straße 3",
+  zip: "40468",
+  city: "Düsseldorf",
+  phone: "+49 211 955 861 0",
+  email: "vertrieb@xvoice-uc.de",
+  web: "www.xvoice-uc.de",
+  register: "Amtsgericht Siegburg, HRB 19078",
+};
+
+function eur(n: number) {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(n);
 }
-function verifyToken(
-  token: string,
-  secret: string
-): { ok: true; payload: OrderPayloadBase } | { ok: false; error: string } {
+
+function rowsTable(rows: OrderRow[]) {
+  const head = `
+    <thead>
+      <tr>
+        <th style="text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap">Position</th>
+        <th style="text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap">Menge</th>
+        <th style="text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap">Einzelpreis</th>
+        <th style="text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap">Summe</th>
+      </tr>
+    </thead>`;
+  const body = rows.map(r => `
+    <tr>
+      <td style="padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5">${r.name} (${r.sku})</td>
+      <td style="padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5">${r.quantity}</td>
+      <td style="padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5">${eur(r.unit)}</td>
+      <td style="padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5"><strong>${eur(r.total)}</strong></td>
+    </tr>`).join("");
+  return `<table width="100%" style="border-collapse:collapse;margin-top:6px">${head}<tbody>${body}</tbody></table>`;
+}
+
+function buildConfirmationHtml(payload: OrderPayload, signer: { name: string; email: string }) {
+  const s = {
+    body: "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
+    container: "max-width:720px;margin:0 auto;padding:24px",
+    card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
+    header: `background:${BRAND.headerBg};color:${BRAND.headerFg};padding:16px 20px;`,
+    headerTable: "width:100%;border-collapse:collapse",
+    logo: "display:block;height:64px;object-fit:contain",
+    accent: `height:3px;background:${BRAND.primary};`,
+    inner: "padding:20px",
+    h1: `margin:0 0 8px 0;font-size:22px;color:#111`,
+    p: "margin:0 0 10px 0;font-size:14px;color:#333;line-height:1.6",
+    pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
+  };
+
+  const mNet = payload.monthlyRows.reduce((a, r) => a + r.total, 0);
+  const oNet = payload.oneTimeRows.reduce((a, r) => a + r.total, 0);
+  const vatM  = mNet * payload.vatRate;
+  const vatO  = oNet * payload.vatRate;
+
+  return `<!DOCTYPE html><html><head><meta charSet="utf-8"/></head>
+  <body style="${s.body}">
+    <div style="${s.container}">
+      <div style="${s.card}">
+        <div style="${s.header}">
+          <table style="${s.headerTable}"><tr><td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td></tr></table>
+        </div>
+        <div style="${s.accent}"></div>
+        <div style="${s.inner}">
+          <h1 style="${s.h1}">Auftragsbestätigung – ${payload.offerId}</h1>
+          <p style="${s.p}">Vielen Dank! Ihre Bestellung ist bei uns eingegangen.</p>
+          <p style="${s.p}"><strong>Kunde:</strong> ${payload.customer.company || "-"}${payload.customer.contact ? " · " + payload.customer.contact : ""}</p>
+          <p style="${s.pSmall}"><strong>Unterzeichnet von:</strong> ${signer.name} &lt;${signer.email}&gt;</p>
+
+          <h3 style="margin:18px 0 6px 0;font-size:16px;color:#111">Monatliche Positionen</h3>
+          ${rowsTable(payload.monthlyRows)}
+
+          <div style="margin-top:10px;font-size:13px">
+            <div>Zwischensumme (netto): <strong>${eur(mNet)}</strong></div>
+            <div>zzgl. USt. (${Math.round(payload.vatRate*100)}%): <strong>${eur(vatM)}</strong></div>
+            <div>Bruttosumme monatlich: <strong>${eur(mNet + vatM)}</strong></div>
+          </div>
+
+          <h3 style="margin:18px 0 6px 0;font-size:16px;color:#111">Einmalige Positionen</h3>
+          ${rowsTable(payload.oneTimeRows)}
+          <div style="margin-top:10px;font-size:13px">
+            <div>Zwischensumme (netto): <strong>${eur(oNet)}</strong></div>
+            <div>zzgl. USt. (${Math.round(payload.vatRate*100)}%): <strong>${eur(vatO)}</strong></div>
+            <div>Bruttosumme einmalig: <strong>${eur(oNet + vatO)}</strong></div>
+          </div>
+
+          <p style="${s.pSmall};margin-top:16px">Hinweis: Diese Bestätigung enthält alle relevanten Bestelldaten. Die Bereitstellung/Onboarding stimmen wir im Anschluss mit Ihnen ab.</p>
+
+          <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
+            <p style="${s.pSmall}">${COMPANY.legal}</p>
+            <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
+            <p style="${s.pSmall}">Tel. ${COMPANY.phone} · ${COMPANY.email} · ${COMPANY.web}</p>
+            <p style="${s.pSmall}">${COMPANY.register}</p>
+            <p style="${s.pSmall}">© ${new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body></html>`;
+}
+
+// ---- Mail via bestehendem /api/send-offer -------------------------------
+async function sendConfirmationMail(recipients: string[], subject: string, html: string, payload: OrderPayload, signer: { name: string; email: string }) {
+  // Wir nutzen dein vorhandenes Mail-API (/api/send-offer).
+  const body = {
+    meta: { subject },
+    offerHtml: html,
+    customer: payload.customer,
+    monthlyRows: payload.monthlyRows,
+    oneTimeRows: payload.oneTimeRows,
+    totals: {
+      monthly: {
+        netList: payload.monthlyRows.reduce((a, r) => a + r.total, 0), // Listenpreise sind hier identisch zu offer
+        netOffer: payload.monthlyRows.reduce((a, r) => a + r.total, 0),
+      },
+      oneTime: {
+        netList: payload.oneTimeRows.reduce((a, r) => a + r.total, 0),
+        netOffer: payload.oneTimeRows.reduce((a, r) => a + r.total, 0),
+      },
+    },
+    salesperson: { name: signer.name, email: signer.email, phone: "" },
+    recipients,
+  };
+
+  // POST zuerst, bei 405 Fallback auf GET (kompatibel zu deiner bestehenden Helper-Logik)
+  const url = new URL("/api/send-offer", process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000").toString();
   try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return { ok: false, error: "Token-Format ungültig" };
-    const [pHeader, pPayload, pSig] = parts;
-    if (!pHeader || !pPayload || !pSig) return { ok: false, error: "Token unvollständig" };
-
-    const expectedSig = signHS256(`${pHeader}.${pPayload}`, secret);
-    const a = b64urlToBuffer(pSig);
-    const b = b64urlToBuffer(expectedSig);
-    if (!safeTimingEqual(a, b)) return { ok: false, error: "Signatur ungültig" };
-
-    const json = b64urlToBuffer(pPayload).toString("utf8");
-    const obj = JSON.parse(json);
-    if (!isOrderPayload(obj)) return { ok: false, error: "Payload im Token ist ungültig" };
-    return { ok: true, payload: obj };
-  } catch {
-    return { ok: false, error: "Token-Validierung fehlgeschlagen" };
+    const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(await res.text());
+  } catch (err: any) {
+    if (/405|UnsupportedHttpVerb/i.test(String(err?.message || err))) {
+      const qs = new URLSearchParams({ data: JSON.stringify({ subject, to: recipients.join(","), company: payload.customer.company || "" }) }).toString();
+      const res2 = await fetch(`${url}?${qs}`, { method: "GET" });
+      if (!res2.ok) throw new Error(await res2.text());
+    } else {
+      throw err;
+    }
   }
 }
 
-// ---------- Routes ----------
-export async function GET() {
-  return json({ ok: true, service: "place-order", time: new Date().toISOString() });
+// ---- JWT sign/verify -----------------------------------------------------
+async function signJwtHS256(payload: any, secret: string, kid = "xv1", ttlSeconds = 48 * 3600) {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const full = { ...payload, iat: nowSec, exp: nowSec + ttlSeconds };
+  const header = { alg: "HS256", typ: "JWT", kid };
+  const p1 = b64url(JSON.stringify(header));
+  const p2 = b64url(JSON.stringify(full));
+  const data = `${p1}.${p2}`;
+  const sig = await hmacSha256(new TextEncoder().encode(secret), data);
+  return `${data}.${b64url(sig)}`;
 }
 
+async function verifyJwtHS256(token: string, secret: string) {
+  const parts = token.split(".");
+  if (parts.length !== 3) throw new Error("Malformed token");
+  const [h64, p64, s64] = parts;
+  const data = `${h64}.${p64}`;
+  const expected = await hmacSha256(new TextEncoder().encode(secret), data);
+  const got = b64urlDecode(s64);
+  if (Buffer.compare(Buffer.from(expected), Buffer.from(got)) !== 0) throw new Error("Bad signature");
+  const payload = JSON.parse(b64urlDecode(p64).toString("utf8"));
+  return payload;
+}
+
+// ---- API Route -----------------------------------------------------------
 export async function POST(req: NextRequest) {
+  const ORDER_SECRET = process.env.ORDER_SECRET;
+  if (!ORDER_SECRET) {
+    return NextResponse.json({ ok: false, error: "ORDER_SECRET fehlt." }, { status: 500 });
+  }
+
   let body: any;
   try {
     body = await req.json();
   } catch {
-    return apiError(400, "Ungültiger JSON-Body.");
+    return NextResponse.json({ ok: false, error: "Ungültiger JSON-Body." }, { status: 400 });
   }
 
-  const secret = getEnv("ORDER_SECRET");
-  const kid = process.env.ORDER_KID || "xv1";
-
-  // --- SIGN ONLY ---
-  if (body?.signOnly) {
-    const payload = body?.payload as OrderPayloadBase;
-    if (!isOrderPayload(payload)) {
-      return apiError(400, "Payload unvollständig oder ungültig für die Signatur.");
+  // A) Nur signieren (wird aus page.tsx beim Versand des Angebots genutzt)
+  if (body?.signOnly && body?.payload) {
+    if (!isOrderPayload(body.payload)) {
+      return NextResponse.json({ ok: false, error: "Ungültiger Payload zum Signieren." }, { status: 400 });
     }
-    const now = Math.floor(Date.now() / 1000);
-    const signedPayload: OrderPayloadBase = {
-      ...payload,
-      iat: now,
-      exp: now + 48 * 3600, // 48h
-    };
-    const token = makeToken(signedPayload, secret, kid);
-    return json({ ok: true, token });
+    const token = await signJwtHS256(body.payload, ORDER_SECRET, "xv1");
+    return NextResponse.json({ ok: true, token });
   }
 
-  // --- SUBMIT ORDER ---
+  // B) Bestellung absenden
   if (body?.submit) {
-    const token = String(body?.token || "");
-    const accept = !!body?.accept;
+    const token: string | undefined = body.token;
+    const accept: boolean = !!body.accept;
     const signer = body?.signer || {};
-    const context = body?.context || {};
+    const salesEmail: string | undefined = body?.salesEmail; // optional aus Order-Page
 
-    if (!token) return apiError(400, "Fehlender Token.");
-    if (!accept) return apiError(400, "AGB/Widerruf/Datenschutz wurden nicht bestätigt.");
-    if (!signer?.name || !signer?.email) return apiError(400, "Unterzeichner (Name & E-Mail) erforderlich.");
+    if (!token) return NextResponse.json({ ok: false, error: "Fehlender Token." }, { status: 400 });
+    if (!accept) return NextResponse.json({ ok: false, error: "Bitte AGB/Datenschutz bestätigen." }, { status: 400 });
+    if (!signer?.name || !signer?.email) return NextResponse.json({ ok: false, error: "Signer unvollständig." }, { status: 400 });
 
-    const v = verifyToken(token, secret);
-    if (!v.ok) return apiError(400, v.error);
-
-    const payload = v.payload; // hat optional exp/iat im Typ
-    const nowSec = Math.floor(Date.now() / 1000);
-    if (typeof payload.exp === "number" && nowSec > payload.exp) {
-      return apiError(400, "Token abgelaufen.");
+    // Token prüfen
+    let payload: any;
+    try {
+      payload = await verifyJwtHS256(token, ORDER_SECRET);
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: "Token ungültig: " + String(e?.message || e) }, { status: 400 });
+    }
+    if (!isOrderPayload(payload)) {
+      return NextResponse.json({ ok: false, error: "Payload im Token ist ungültig." }, { status: 400 });
+    }
+    // optional exp-Check, nur wenn vorhanden (ältere Tokens ohne exp nicht brechen)
+    if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp)) {
+      return NextResponse.json({ ok: false, error: "Token abgelaufen." }, { status: 400 });
     }
 
-    const orderId = `ORD-${Date.now()}`;
+    // Auftragsbestätigung bauen & versenden
+    const html = buildConfirmationHtml(payload, signer);
+    const recipients = Array.from(
+      new Set(
+        [
+          payload.customer.email,          // Kunde
+          signer.email,                    // Vertriebsmitarbeiter (oder Betreuer)
+          salesEmail,                      // optional zusätzlich (aus der Order-Page)
+          COMPANY.email,                   // zentral: vertrieb@xvoice-uc.de
+        ].filter(Boolean) as string[]
+      )
+    );
 
-    // Optional: Webhook
-    const webhook = process.env.ORDER_WEBHOOK_URL;
-    if (webhook) {
-      try {
-        await fetch(webhook, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId,
-            token,
-            signer,
-            payload,
-            context,
-            meta: {
-              ip: req.headers.get("x-forwarded-for") || null,
-              ua: req.headers.get("user-agent") || null,
-              receivedAt: new Date().toISOString(),
-            },
-          }),
-        });
-      } catch {
-        console.warn("[ORDER_WEBHOOK_URL] Zustellung fehlgeschlagen (wird ignoriert).");
-      }
+    try {
+      await sendConfirmationMail(
+        recipients,
+        `Auftragsbestätigung – ${payload.offerId}`,
+        html,
+        payload,
+        signer
+      );
+    } catch (err: any) {
+      return NextResponse.json({ ok: false, error: "E-Mail Versand fehlgeschlagen: " + String(err?.message || err) }, { status: 500 });
     }
 
-    // TODO: E-Mail-Bestätigung(en) triggern, wenn gewünscht
-    return json({ ok: true, orderId });
+    // Hier könntest du zusätzlich CRM/ERP/Webhooks triggern
+
+    return NextResponse.json({ ok: true, status: "order-accepted", offerId: payload.offerId, recipients });
   }
 
-  return apiError(400, "Ungültiger Request. Verwende { signOnly:true, payload } oder { submit:true, token, ... }.");
+  // C) Optional: Logging eines Order-Intents
+  if (body?.orderIntent && body?.token) {
+    // nur validieren, kein Versand
+    try {
+      const p = await verifyJwtHS256(body.token, ORDER_SECRET);
+      if (!isOrderPayload(p)) throw new Error("Bad payload");
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: "OrderIntent: Token ungültig: " + String(e?.message || e) }, { status: 400 });
+    }
+    return NextResponse.json({ ok: true, status: "intent-logged" });
+  }
+
+  return NextResponse.json({ ok: false, error: "Unsupported payload." }, { status: 400 });
 }
