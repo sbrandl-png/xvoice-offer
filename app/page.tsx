@@ -390,13 +390,23 @@ function buildEmailHtml(params: {
             : ""
         }
 
-        <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
-          <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}"
-             style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
-             Jetzt verbindlich bestellen
-          </a>
-          <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
-        </div>
+        <!-- Button-Zeile (Outlook-sicher, mit Abstand) -->
+        <table role="presentation" width="100%" style="margin-top:16px;border-collapse:collapse">
+          <tr>
+            <td align="left" style="padding:0">
+              <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}"
+                 style="display:inline-block;background:#ff4e00;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
+                 Jetzt verbindlich bestellen
+              </a>
+              <span style="display:inline-block;width:12px;line-height:12px;">&nbsp;</span>
+              <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot"
+                 target="_blank" rel="noopener"
+                 style="display:inline-block;background:#111111;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
+                 Rückfrage zum Angebot
+              </a>
+            </td>
+          </tr>
+        </table>
 
         <!-- Vertriebsgruß -->
         <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
