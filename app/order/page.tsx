@@ -1,18 +1,21 @@
 // app/order/page.tsx
 "use client";
 
-import React, { useMemo } from "react";
+import React, { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { verifyOrderToken } from "@/lib/orderToken";
+
+// Verhindert statische Vor-Generierung dieser Seite
+export const dynamic = "force-dynamic";
 
 // Hilfsformatierung
 function formatMoney(value: number) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(value);
 }
 
-// Optional: lokale Typen (verlassen uns nicht auf die exakte Library-Union)
+// Schlanke Typen (unabhängig von exakten Library-Union-Typen)
 type OrderRowLite = { sku: string; name: string; quantity: number; unit: number; total: number };
 type OrderPayloadLite = {
   offerId: string;
@@ -23,7 +26,7 @@ type OrderPayloadLite = {
   createdAt: number;
 };
 
-export default function OrderPage() {
+function OrderPageInner() {
   const sp = useSearchParams();
   const rawToken = sp.get("token") || "";
 
@@ -38,7 +41,6 @@ export default function OrderPage() {
     return <div className="max-w-3xl mx-auto p-6">Kein Token übergeben.</div>;
   }
 
-  // Fehlerpfad
   if (!result.ok) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -55,9 +57,8 @@ export default function OrderPage() {
     );
   }
 
-  // Erfolgszweig: defensiv unsigned ermitteln, ohne TS-Fehler
   const payload = result.payload as unknown as OrderPayloadLite;
-  const isUnsigned = (result as any)?.unsigned === true; // <- kein Destructure, daher build-safe
+  const isUnsigned = (result as any)?.unsigned === true; // optional vorhanden
 
   const mNet = payload.monthlyRows.reduce((a, r) => a + r.total, 0);
   const oNet = payload.oneTimeRows.reduce((a, r) => a + r.total, 0);
@@ -162,5 +163,13 @@ export default function OrderPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function OrderPage() {
+  return (
+    <Suspense fallback={<div className="max-w-3xl mx-auto p-6">Lade Bestellseite…</div>}>
+      <OrderPageInner />
+    </Suspense>
   );
 }
