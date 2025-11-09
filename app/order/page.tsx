@@ -1,11 +1,32 @@
 // app/order/page.tsx
 import React from "react";
 
-export const runtime = "nodejs";       // wichtig: nicht Edge
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// ---- kleine Base64url-Helpers ----
+/* ===== BRAND / COMPANY (wie in der Mail) ===== */
+const BRAND = {
+  name: "xVoice UC",
+  primary: "#ff4e00",
+  dark: "#111111",
+  headerBg: "#000000",
+  headerFg: "#ffffff",
+  logoUrl: "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
+};
+
+const COMPANY = {
+  legal: "xVoice UC UG (Haftungsbeschränkt)",
+  street: "Peter-Müller-Straße 3",
+  zip: "40468",
+  city: "Düsseldorf",
+  phone: "+49 211 955 861 0",
+  email: "vertrieb@xvoice-uc.de",
+  web: "www.xvoice-uc.de",
+  register: "Amtsgericht Siegburg, HRB 19078",
+};
+
+/* ===== kleine Base64url-Helpers ===== */
 function b64url(buf: Buffer | Uint8Array | string) {
   const b = typeof buf === "string" ? Buffer.from(buf, "utf8") : Buffer.from(buf);
   return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -16,7 +37,7 @@ function fromB64urlToBuf(b64u: string) {
 }
 
 async function hmacSha256(key: string, data: string) {
-  const { createHmac } = await import("node:crypto"); // dynamisch, damit Edge nicht crasht
+  const { createHmac } = await import("node:crypto");
   return createHmac("sha256", key).update(data).digest();
 }
 async function timingSafeEqualSafe(a: Buffer, b: Buffer) {
@@ -25,22 +46,23 @@ async function timingSafeEqualSafe(a: Buffer, b: Buffer) {
   return timingSafeEqual(a, b);
 }
 
+/* ===== Typen ===== */
 type Row = { sku: string; name: string; quantity: number; unit: number; total: number };
 type OrderPayload = {
   offerId: string;
   customer: { company: string; contact: string; email: string; phone?: string };
   monthlyRows: Row[];
   oneTimeRows: Row[];
-  vatRate: number;         // z.B. 0.19
-  createdAt: number;       // epoch ms
+  vatRate: number;
+  createdAt: number; // epoch ms
 };
 
-const BRAND = { primary: "#ff4e00" };
-
+/* ===== Utils ===== */
 function formatMoney(value: number) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
 }
 
+/* ===== Token-Verifikation (HS256, ohne Fremdpakete) ===== */
 async function verifyToken(token: string) {
   const ORDER_SECRET = process.env.ORDER_SECRET || "";
   if (!ORDER_SECRET) return { ok: false as const, error: "ORDER_SECRET ist nicht gesetzt." };
@@ -52,9 +74,8 @@ async function verifyToken(token: string) {
   const [headB64, bodyB64, sigB64] = parts;
 
   // Header prüfen
-  let headerJson = "";
   try {
-    headerJson = fromB64urlToBuf(headB64).toString("utf8");
+    const headerJson = fromB64urlToBuf(headB64).toString("utf8");
     const header = JSON.parse(headerJson);
     if (!header || header.alg !== "HS256") {
       return { ok: false as const, error: "Header/Algorithmus nicht unterstützt." };
@@ -88,6 +109,79 @@ async function verifyToken(token: string) {
   }
 }
 
+/* ===== Design-Bausteine ===== */
+function PageHeader() {
+  return (
+    <div
+      className="flex items-center justify-between gap-4 p-6 rounded-2xl shadow-sm"
+      style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
+    >
+      <div className="flex items-center gap-6">
+        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-16 w-16 object-contain" />
+        <div>
+          <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
+            Bestellung · xVoice UC
+          </div>
+          <div className="text-xl font-semibold" style={{ color: BRAND.headerFg }}>
+            Bestätigung & Zusammenfassung
+          </div>
+        </div>
+      </div>
+      <div className="text-sm" style={{ color: "#d1d5db" }}>
+        Stand {new Date().toISOString().slice(0, 10)}
+      </div>
+    </div>
+  );
+}
+
+function AccentLine() {
+  return <div style={{ height: 3, background: BRAND.primary }} className="rounded-full" />;
+}
+
+function CardSection({ title, children }: React.PropsWithChildren<{ title: string }>) {
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <h2 className="font-medium mb-3" style={{ color: BRAND.dark }}>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+function LegalFooter() {
+  return (
+    <footer className="text-xs text-neutral-600 mt-8 pt-4 border-t">
+      <p>{COMPANY.legal}</p>
+      <p>
+        {COMPANY.street}, {COMPANY.zip} {COMPANY.city}
+      </p>
+      <p>
+        Tel. {COMPANY.phone} · {COMPANY.email} · {COMPANY.web}
+      </p>
+      <p>{COMPANY.register}</p>
+      <p>© {new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
+    </footer>
+  );
+}
+
+function ErrorBox({ title, message, fingerprint }: { title: string; message: string; fingerprint?: string }) {
+  return (
+    <main className="mx-auto max-w-xl p-6">
+      <PageHeader />
+      <AccentLine />
+      <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <h1 className="text-xl font-semibold mb-2">{title}</h1>
+        <p className="text-sm text-neutral-700">{message}</p>
+        <p className="text-xs text-neutral-500 mt-2">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
+        {fingerprint && (
+          <p className="text-xs text-neutral-400 mt-2">Token-Fingerprint: {fingerprint}</p>
+        )}
+      </div>
+      <LegalFooter />
+    </main>
+  );
+}
+
+/* ===== Server Component ===== */
 export default async function OrderPage(props: { searchParams?: Record<string, string | string[]> }) {
   try {
     const tokenParam = props?.searchParams?.token;
@@ -106,7 +200,7 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
     const result = await verifyToken(token);
 
     if (!result.ok) {
-      const short = token.slice(0, 10) + "…" + token.slice(-10);
+      const short = token.length > 24 ? token.slice(0, 10) + "…" + token.slice(-10) : token;
       return (
         <ErrorBox
           title="Ungültiger oder beschädigter Bestelllink"
@@ -124,24 +218,28 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
 
     return (
       <main className="mx-auto max-w-3xl p-6">
-        <h1 className="text-2xl font-semibold mb-1">Bestellung bestätigen</h1>
-        <p className="text-sm text-neutral-600 mb-6">
+        <PageHeader />
+        <AccentLine />
+
+        {/* Kopf-Infos */}
+        <div className="mt-6 mb-4 text-sm text-neutral-700">
           Angebot <strong>{payload.offerId}</strong> · erstellt am{" "}
           {new Date(payload.createdAt).toLocaleString("de-DE")}
-        </p>
+        </div>
 
-        <section className="rounded-xl border p-4 mb-6">
-          <h2 className="font-medium mb-2">Kundendaten</h2>
-          <div className="text-sm">
+        {/* Kundendaten */}
+        <CardSection title="Kundendaten">
+          <div className="text-sm text-neutral-800">
             <div><strong>Firma:</strong> {payload.customer.company || "—"}</div>
             <div><strong>Ansprechpartner:</strong> {payload.customer.contact || "—"}</div>
             <div><strong>E-Mail:</strong> {payload.customer.email || "—"}</div>
             <div><strong>Telefon:</strong> {payload.customer.phone || "—"}</div>
           </div>
-        </section>
+        </CardSection>
 
-        <section className="rounded-xl border p-4 mb-6">
-          <h2 className="font-medium mb-2">Monatliche Positionen</h2>
+        {/* Monatlich */}
+        <div className="h-4" />
+        <CardSection title="Monatliche Positionen">
           {payload.monthlyRows.length === 0 ? (
             <div className="text-sm text-neutral-600">Keine.</div>
           ) : (
@@ -159,10 +257,11 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
             <div className="flex justify-between"><span>zzgl. USt.</span><span className="tabular-nums">{formatMoney(vatM)}</span></div>
             <div className="flex justify-between font-semibold"><span>Brutto</span><span className="tabular-nums">{formatMoney(mNet + vatM)}</span></div>
           </div>
-        </section>
+        </CardSection>
 
-        <section className="rounded-xl border p-4 mb-6">
-          <h2 className="font-medium mb-2">Einmalige Positionen</h2>
+        {/* Einmalig */}
+        <div className="h-4" />
+        <CardSection title="Einmalige Positionen">
           {payload.oneTimeRows.length === 0 ? (
             <div className="text-sm text-neutral-600">Keine.</div>
           ) : (
@@ -180,12 +279,12 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
             <div className="flex justify-between"><span>zzgl. USt.</span><span className="tabular-nums">{formatMoney(vatO)}</span></div>
             <div className="flex justify-between font-semibold"><span>Brutto</span><span className="tabular-nums">{formatMoney(oNet + vatO)}</span></div>
           </div>
-        </section>
+        </CardSection>
 
+        {/* CTA */}
         <form action="/api/place-order" method="post" className="mt-6">
-          {/* Token serverseitig verifizieren, aber zur Sicherheit noch mal ans API schicken */}
           <input type="hidden" name="orderIntent" value="true" />
-          <input type="hidden" name="token" value={token} />
+          <input type="hidden" name="token" value={Array.isArray(props?.searchParams?.token) ? props?.searchParams?.token[0] : (props?.searchParams?.token || "")} />
           <button
             type="submit"
             className="px-4 py-2 rounded-lg text-white"
@@ -194,6 +293,8 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
             Jetzt verbindlich bestellen
           </button>
         </form>
+
+        <LegalFooter />
       </main>
     );
   } catch (e: any) {
@@ -206,19 +307,4 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
       />
     );
   }
-}
-
-function ErrorBox({ title, message, fingerprint }: { title: string; message: string; fingerprint?: string }) {
-  return (
-    <main className="mx-auto max-w-xl p-6">
-      <h1 className="text-xl font-semibold mb-2">{title}</h1>
-      <p className="text-sm text-neutral-700">{message}</p>
-      <p className="text-xs text-neutral-500 mt-2">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
-      {fingerprint && (
-        <p className="text-xs text-neutral-400 mt-2">
-          Token-Fingerprint: {fingerprint}
-        </p>
-      )}
-    </main>
-  );
 }
