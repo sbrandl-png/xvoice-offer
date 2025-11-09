@@ -392,9 +392,9 @@ function buildEmailHtml(params: {
 
         <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
           <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}"
-   style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
-   Jetzt verbindlich bestellen
-</a>
+             style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
+             Jetzt verbindlich bestellen
+          </a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
@@ -780,6 +780,52 @@ export default function Page() {
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
+  // ===== SERVERSEITIGES SIGNIEREN =====
+  async function signViaServer(orderPayload: any): Promise<string> {
+    const res = await fetch(ORDER_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ signOnly: true, payload: orderPayload }),
+    });
+    if (!res.ok) {
+      throw new Error(`Signierfehler: ${await res.text()}`);
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!data?.token || typeof data.token !== "string") {
+      throw new Error("Signierfehler: Kein Token erhalten");
+    }
+    return data.token as string;
+  }
+
+  // Payload exakt gemäß OrderPayload (ohne salesperson)
+  function buildOrderPayload() {
+    return {
+      offerId: "XVO-" + Date.now(),
+      customer: {
+        company: customer.company,
+        contact: customer.contact,
+        email: customer.email,
+        phone: customer.phone,
+      },
+      monthlyRows: monthlyRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      oneTimeRows: oneTimeRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      vatRate,
+      createdAt: Date.now(),
+    };
+  }
+
   // Preview / Download / Copy
   function openPreviewNewTab() {
     try {
@@ -876,48 +922,6 @@ export default function Page() {
     }
   }
 
-  // Payload exakt gemäß OrderPayload (ohne salesperson)
-  function buildOrderPayload() {
-    return {
-      offerId: "XVO-" + Date.now(),
-      customer: {
-        company: customer.company,
-        contact: customer.contact,
-        email: customer.email,
-        phone: customer.phone,
-      },
-      monthlyRows: monthlyRows.map(r => ({
-        sku: r.sku,
-        name: r.name,
-        quantity: r.quantity,
-        unit: r.offerUnit,
-        total: r.offerTotal,
-      })),
-      oneTimeRows: oneTimeRows.map(r => ({
-        sku: r.sku,
-        name: r.name,
-        quantity: r.quantity,
-        unit: r.offerUnit,
-        total: r.offerTotal,
-      })),
-      vatRate,
-      createdAt: Date.now(),
-    };
-  }
-
-  function safeTokenFromPayload(payload: any) {
-    try {
-      return signOrderPayload(payload);
-    } catch {
-      const json = JSON.stringify(payload);
-      const b64 =
-        typeof window !== "undefined"
-          ? window.btoa(unescape(encodeURIComponent(json)))
-          : Buffer.from(json, "utf8").toString("base64");
-      return `plain.${b64}.nosig`;
-    }
-  }
-
   async function handleSendEmail() {
     setSending(true);
     setError("");
@@ -928,63 +932,30 @@ export default function Page() {
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
 
-    const offerId = "XVO-" + Date.now();
-const orderPayload = {
-  offerId,
-  customer: {
-    company: customer.company,
-    contact: customer.contact,
-    email: customer.email,
-    phone: customer.phone,
-  },
-  salesperson,
-  monthlyRows: monthlyRows.map(r => ({
-    sku: r.sku,
-    name: r.name,
-    quantity: r.quantity,
-    unit: r.offerUnit,
-    total: r.offerTotal,
-  })),
-  oneTimeRows: oneTimeRows.map(r => ({
-    sku: r.sku,
-    name: r.name,
-    quantity: r.quantity,
-    unit: r.offerUnit,
-    total: r.offerTotal,
-  })),
-  vatRate,
-  createdAt: Date.now(),
-};
+      // 1) Payload (ohne salesperson) – entspricht der Order-Seite
+      const orderPayload = buildOrderPayload();
 
-// 2) Serverseitig signieren (gleicher Endpoint wie ORDER_ENDPOINT)
-const signRes = await fetch("/api/place-order", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ signOnly: true, payload: orderPayload }),
-});
-if (!signRes.ok) {
-  throw new Error(`Signierfehler: ${await signRes.text()}`);
-}
-const { token } = await signRes.json();
+      // 2) Serverseitig signieren
+      const token = await signViaServer(orderPayload);
 
-// 3) Token in HTML einsetzen
-const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+      // 3) Token in HTML einsetzen
+      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
 
-// 4) E-Mail mit tokenisierter HTML senden
-await postJson(EMAIL_ENDPOINT, {
-  meta: { subject },
-  offerHtml: htmlWithToken,
-  customer,
-  monthlyRows,
-  oneTimeRows,
-  totals: {
-    monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
-    oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
-  },
-  salesperson,
-  recipients: [customer.email, salesEmail].filter(Boolean),
-});
-// ...
+      // 4) E-Mail senden (mit tokenisiertem HTML)
+      await postJson(EMAIL_ENDPOINT, {
+        meta: { subject },
+        offerHtml: htmlWithToken,
+        customer,
+        monthlyRows,
+        oneTimeRows,
+        totals: {
+          monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
+          oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
+        },
+        salesperson,
+        recipients: [customer.email, salesEmail].filter(Boolean),
+      });
+
       setSendOk(true);
     } catch (e: any) {
       setError(String(e?.message || e));
@@ -998,10 +969,16 @@ await postJson(EMAIL_ENDPOINT, {
     setError("");
     setSendOk(false);
     try {
-      const payload = buildOrderPayload();
-      const token = safeTokenFromPayload(payload);
+      // Gleiche Payload wie für die E-Mail/Bestelllink
+      const orderPayload = buildOrderPayload();
+
+      // Serverseitig signieren
+      const token = await signViaServer(orderPayload);
+
+      // HTML (lokal) mit Token befüllen – optional
       const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
 
+      // Intent an Server (falls du dort z. B. Logging/Pre-Order möchtest)
       await postJson(ORDER_ENDPOINT, {
         orderIntent: true,
         token,
@@ -1010,6 +987,7 @@ await postJson(EMAIL_ENDPOINT, {
         monthlyRows,
         oneTimeRows,
       });
+
       setSendOk(true);
     } catch (e: any) {
       setError(String(e?.message || e));
