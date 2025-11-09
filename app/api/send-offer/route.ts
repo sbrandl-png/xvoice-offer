@@ -2,8 +2,16 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-export const runtime = "nodejs";           // Server-Runtime
-export const dynamic = "force-dynamic";    // keine Prerender-Versuche
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function isValidEmail(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (!s) return false;
+  // simple but robust-enough validator
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
 
 export async function POST(req: Request) {
   try {
@@ -12,36 +20,42 @@ export async function POST(req: Request) {
       meta,
       offerHtml,
       customer,
-      recipients,
-      salesperson,
-      // ... weitere Felder falls nötig
+      recipients,          // z.B. [customer.email, salesEmail] aus der App
+      salesperson,         // { name, email, phone } – wir nehmen salesperson.email zusätzlich
     } = body || {};
 
     const apiKey = process.env.RESEND_API_KEY;
     if (!apiKey) {
-      // Kein harter Throw – sauberer 500-Response, damit der Build nicht scheitert
       return NextResponse.json(
         { ok: false, error: "Server: RESEND_API_KEY fehlt." },
         { status: 500 }
       );
     }
 
-    // Resend-Client ERST JETZT erzeugen (im Handler, nicht global)
     const resend = new Resend(apiKey);
 
-    // Absender/Reply-To wie gewünscht:
+    // Absender/Reply-To
     const from = `xVoice Angebote <angebot@xvoice-one.de>`;
-    const replyTo = "vertrieb@xvoice-uc.de";
+    const salesSigEmail = salesperson?.email && String(salesperson.email).trim();
+    const replyTo = isValidEmail(salesSigEmail) ? salesSigEmail : "vertrieb@xvoice-uc.de";
 
-    const to: string[] =
-      Array.isArray(recipients) && recipients.length
-        ? recipients
-        : ["vertrieb@xvoice-uc.de"];
+    // Empfänger zusammenbauen (Kunde/Vertrieb aus payload + automatisch salesperson.email)
+    const baseList = Array.isArray(recipients) ? recipients : [];
+    const withSalesSig = isValidEmail(salesSigEmail) ? [...baseList, salesSigEmail] : baseList;
+
+    // Deduplizieren & invalides entfernen
+    const to = Array.from(
+      new Set(withSalesSig.filter(isValidEmail))
+    );
+
+    // Fallback, falls nichts übrig bleibt
+    if (to.length === 0) {
+      to.push("vertrieb@xvoice-uc.de");
+    }
 
     const subject =
       (meta && meta.subject) || "Ihr individuelles xVoice UC Angebot";
 
-    // Minimal-Validierung
     if (!offerHtml || typeof offerHtml !== "string") {
       return NextResponse.json(
         { ok: false, error: "offerHtml fehlt oder ist ungültig." },
@@ -55,7 +69,7 @@ export async function POST(req: Request) {
       reply_to: replyTo,
       subject,
       html: offerHtml,
-      // optional:
+      // Optional: Tags/Headers
       // headers: { "X-Campaign": "xvoice-offer" },
     });
 
@@ -68,7 +82,6 @@ export async function POST(req: Request) {
   }
 }
 
-// Optional: GET als Fallback/Healthcheck
 export async function GET() {
   return NextResponse.json({ ok: true, info: "send-offer endpoint ready" });
 }
