@@ -1,122 +1,204 @@
 // app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { createHmac, timingSafeEqual } from "crypto";
 
-export const runtime = "nodejs";          // harte Node-Runtime
-export const dynamic = "force-dynamic";   // nie prerendert/cached
-export const revalidate = 0;
+export const runtime = "nodejs";
 
-// --- kleine Base64url-Helpers ---
-function b64url(buf: Buffer | Uint8Array | string) {
-  const b = typeof buf === "string" ? Buffer.from(buf, "utf8") : Buffer.from(buf);
-  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function b64urlJSON(obj: unknown) {
-  return b64url(Buffer.from(JSON.stringify(obj), "utf8"));
-}
-function fromB64urlToBuf(b64u: string) {
-  const pad = "===".slice((b64u.length + 3) % 4);
-  return Buffer.from(b64u.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
+// ---------- Helpers ----------
+function getEnv(name: string, req?: NextRequest): string {
+  const v = process.env[name];
+  if (!v || !v.length) {
+    const hint = name === "ORDER_SECRET"
+      ? "Setze in Vercel eine Environment Variable ORDER_SECRET (z. B. 32+ zufällige Bytes als Hex/Base64)."
+      : `Environment Variable ${name} fehlt.`;
+    throw apiError(500, `${name} ist nicht gesetzt. ${hint}`);
+  }
+  return v;
 }
 
-function bad(status: number, msg: string, extra?: any) {
-  console.error("[place-order]", msg, extra ?? "");
-  return NextResponse.json({ ok: false, error: msg }, { status });
+function apiError(status: number, message: string) {
+  return new Response(message, { status, headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }
 
-async function hmacSha256(key: string, data: string) {
-  // dynamisch laden -> verhindert Edge/Import-Probleme
-  const { createHmac } = await import("node:crypto");
-  return createHmac("sha256", key).update(data).digest();
+function json(data: any, init?: ResponseInit) {
+  return new NextResponse(JSON.stringify(data), {
+    status: 200,
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    ...init,
+  });
 }
 
-async function timingSafeEqualSafe(a: Buffer, b: Buffer) {
-  const { timingSafeEqual } = await import("node:crypto");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+function b64urlEncode(buf: Buffer) {
+  return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function b64urlFromJSON(obj: any) {
+  const json = Buffer.from(JSON.stringify(obj), "utf8");
+  return b64urlEncode(json);
+}
+function b64urlToBuffer(b64url: string) {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = 4 - (b64.length % 4 || 4);
+  return Buffer.from(b64 + "=".repeat(pad), "base64");
 }
 
-const ORDER_SECRET = process.env.ORDER_SECRET ?? "";
-
-async function signPayload(payload: any) {
-  if (!ORDER_SECRET) return { ok: false as const, error: "ORDER_SECRET ist nicht gesetzt." };
-  if (!payload || typeof payload !== "object") return { ok: false as const, error: "Ungültige Payload." };
-
-  const header = { alg: "HS256", typ: "JWT", kid: "xv1" };
-  const head = b64urlJSON(header);
-  const body = b64urlJSON(payload);
-  const toSign = `${head}.${body}`;
-  const sig = await hmacSha256(ORDER_SECRET, toSign);
-  return { ok: true as const, token: `${toSign}.${b64url(sig)}` };
+function signHS256(data: string, secret: string) {
+  const h = createHmac("sha256", Buffer.from(secret, "utf8"));
+  h.update(data);
+  const sig = h.digest();
+  return b64urlEncode(sig);
 }
 
-async function verifyToken(token: string) {
-  if (!ORDER_SECRET) return { ok: false as const, error: "ORDER_SECRET ist nicht gesetzt." };
-  if (!token || typeof token !== "string") return { ok: false as const, error: "Token fehlt." };
-
-  const parts = token.split(".");
-  if (parts.length !== 3) return { ok: false as const, error: "Token-Format ungültig." };
-
-  const [headB64, bodyB64, sigB64] = parts;
-  let headerJson = "";
+function safeTimingEqual(a: Buffer, b: Buffer) {
+  if (a.length !== b.length) return false; // verhindert "Input buffers must have the same byte length"
   try {
-    headerJson = fromB64urlToBuf(headB64).toString("utf8");
-    JSON.parse(headerJson); // nur Validierung
+    return timingSafeEqual(a, b);
   } catch {
-    return { ok: false as const, error: "Header nicht lesbar." };
+    return false;
   }
+}
 
-  const toSign = `${headB64}.${bodyB64}`;
-  const expected = await hmacSha256(ORDER_SECRET, toSign);
+// Very light type guard
+function isOrderPayload(p: any): p is {
+  offerId: string;
+  customer: { company?: string; contact?: string; email?: string; phone?: string };
+  monthlyRows: Array<{ sku: string; name: string; quantity: number; unit: number; total: number }>;
+  oneTimeRows: Array<{ sku: string; name: string; quantity: number; unit: number; total: number }>;
+  vatRate: number;
+  createdAt: number;
+} {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.offerId === "string" &&
+    p.customer && typeof p.customer === "object" &&
+    Array.isArray(p.monthlyRows) &&
+    Array.isArray(p.oneTimeRows) &&
+    typeof p.vatRate === "number" &&
+    typeof p.createdAt === "number"
+  );
+}
 
-  let got: Buffer;
+// ---------- JWT (HS256) ----------
+function makeToken(payload: any, secret: string, kid = "xv1") {
+  const header = { alg: "HS256", typ: "JWT", kid };
+  const part1 = b64urlFromJSON(header);
+  const part2 = b64urlFromJSON(payload);
+  const data = `${part1}.${part2}`;
+  const sig = signHS256(data, secret);
+  return `${data}.${sig}`;
+}
+
+function verifyToken(token: string, secret: string): { ok: true; payload: any } | { ok: false; error: string } {
   try {
-    got = fromB64urlToBuf(sigB64);
-  } catch {
-    return { ok: false as const, error: "Signatur nicht lesbar." };
-  }
+    const parts = token.split(".");
+    if (parts.length !== 3) return { ok: false, error: "Token-Format ungültig" };
 
-  if (!(await timingSafeEqualSafe(got, expected))) {
-    return { ok: false as const, error: "Signatur ungültig." };
-  }
+    const [pHeader, pPayload, pSig] = parts;
+    if (!pHeader || !pPayload || !pSig) return { ok: false, error: "Token unvollständig" };
 
-  try {
-    const bodyJson = fromB64urlToBuf(bodyB64).toString("utf8");
-    const payload = JSON.parse(bodyJson);
-    return { ok: true as const, payload };
-  } catch {
-    return { ok: false as const, error: "Payload nicht lesbar." };
+    // Signatur prüfen
+    const data = `${pHeader}.${pPayload}`;
+    const expectedSig = signHS256(data, secret);
+    const a = b64urlToBuffer(pSig);
+    const b = b64urlToBuffer(expectedSig);
+    if (!safeTimingEqual(a, b)) return { ok: false, error: "Signatur ungültig" };
+
+    // Payload parsen
+    const json = b64urlToBuffer(pPayload).toString("utf8");
+    const obj = JSON.parse(json);
+    return { ok: true, payload: obj };
+  } catch (e: any) {
+    return { ok: false, error: "Token-Validierung fehlgeschlagen" };
   }
+}
+
+// ---------- Routes ----------
+export async function GET() {
+  // Simple Healthcheck/Debug
+  return json({ ok: true, service: "place-order", time: new Date().toISOString() });
 }
 
 export async function POST(req: NextRequest) {
+  let body: any;
   try {
-    const data = await req.json().catch(() => null);
-    if (!data || typeof data !== "object") return bad(400, "Body fehlt/ungültig.");
-
-    // 1) Client will nur signieren
-    if ((data as any).signOnly) {
-      const res = await signPayload((data as any).payload);
-      if (!res.ok) return bad(400, res.error);
-      return NextResponse.json({ ok: true, token: res.token });
-    }
-
-    // 2) Order-Intent mit Token prüfen
-    if ((data as any).orderIntent) {
-      const token = String((data as any).token || "");
-      const res = await verifyToken(token);
-      if (!res.ok) return bad(400, res.error);
-      // TODO: optional Logging/DB
-      return NextResponse.json({ ok: true });
-    }
-
-    return bad(400, "Unbekannte Operation.");
-  } catch (e: any) {
-    console.error("[place-order] Uncaught:", e?.stack || e);
-    return bad(500, "Serverfehler");
+    body = await req.json();
+  } catch {
+    return apiError(400, "Ungültiger JSON-Body.");
   }
-}
 
-export async function GET() {
-  // einfacher Health-Check
-  return NextResponse.json({ ok: true, runtime, hasSecret: Boolean(ORDER_SECRET) });
+  const secret = getEnv("ORDER_SECRET", req);
+  const kid = process.env.ORDER_KID || "xv1";
+
+  // --- SIGN ONLY ---
+  if (body?.signOnly) {
+    const payload = body?.payload;
+    if (!isOrderPayload(payload)) {
+      return apiError(400, "Payload unvollständig oder ungültig für die Signatur.");
+    }
+
+    // Optional: iat/exp hinzufügen (hier 48h Gültigkeit)
+    const now = Math.floor(Date.now() / 1000);
+    const signedPayload = { ...payload, iat: now, exp: now + 48 * 3600 };
+
+    const token = makeToken(signedPayload, secret, kid);
+    return json({ ok: true, token });
+  }
+
+  // --- SUBMIT ORDER ---
+  if (body?.submit) {
+    const token = String(body?.token || "");
+    const accept = !!body?.accept;
+    const signer = body?.signer || {};
+    const context = body?.context || {};
+
+    if (!token) return apiError(400, "Fehlender Token.");
+    if (!accept) return apiError(400, "AGB/Widerruf/Datenschutz wurden nicht bestätigt.");
+    if (!signer?.name || !signer?.email) return apiError(400, "Unterzeichner (Name & E-Mail) erforderlich.");
+
+    const v = verifyToken(token, secret);
+    if (!v.ok) return apiError(400, v.error);
+
+    const payload = v.payload;
+    if (!isOrderPayload(payload)) return apiError(400, "Payload im Token ist ungültig.");
+    if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp)) {
+      return apiError(400, "Token abgelaufen.");
+    }
+
+    // Order-ID generieren
+    const orderId = `ORD-${Date.now()}`;
+
+    // Optional: Webhook an euer Backend/CRM (best-effort)
+    const webhook = process.env.ORDER_WEBHOOK_URL;
+    if (webhook) {
+      try {
+        await fetch(webhook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            token,
+            signer,
+            payload,
+            context,
+            meta: {
+              ip: req.headers.get("x-forwarded-for") || req.ip || null,
+              ua: req.headers.get("user-agent") || null,
+              receivedAt: new Date().toISOString(),
+            },
+          }),
+        });
+      } catch {
+        // bewusst nur loggen – Bestellung gilt trotzdem als angenommen
+        console.warn("[ORDER_WEBHOOK_URL] Zustellung fehlgeschlagen.");
+      }
+    }
+
+    // TODO: Hier könntest du E-Mail-Bestätigung(en) triggern
+    // z.B. an Kunde, Vertrieb & interne Mailbox.
+
+    return json({ ok: true, orderId });
+  }
+
+  // Fallback
+  return apiError(400, "Ungültiger Request. Verwende { signOnly:true, payload } oder { submit:true, token, ... }.");
 }
