@@ -1,5 +1,5 @@
 // app/order/page.tsx
-import { verifyOrderToken, type OrderPayload } from "@/lib/orderToken";
+import { verifyOrderToken, type OrderPayload, type OrderRow } from "@/lib/orderToken";
 
 function fmtMoney(v: number) {
   return new Intl.NumberFormat("de-DE", {
@@ -23,10 +23,13 @@ function Section({
   );
 }
 
+/** Lokaler Hilfstyp: Rows dürfen optional eine Beschreibung enthalten */
+type RowMaybeDesc = OrderRow & { desc?: string };
+
 function RowsTable({
   rows,
 }: {
-  rows: OrderPayload["monthlyRows"] | OrderPayload["oneTimeRows"];
+  rows: RowMaybeDesc[];
 }) {
   if (!rows?.length) {
     return <div className="text-sm text-zinc-500">Keine Positionen.</div>;
@@ -101,7 +104,7 @@ function Totals({
   vatRate,
   title,
 }: {
-  rows: OrderPayload["monthlyRows"] | OrderPayload["oneTimeRows"];
+  rows: RowMaybeDesc[];
   vatRate: number;
   title: string;
 }) {
@@ -172,8 +175,8 @@ export default function OrderPage({
   const payload: OrderPayload = verified.payload;
   const { customer, monthlyRows, oneTimeRows, vatRate, offerId } = payload;
 
-  const monthlyList = monthlyRows ?? [];
-  const oneTimeList = oneTimeRows ?? [];
+  const monthlyList: RowMaybeDesc[] = monthlyRows ?? [];
+  const oneTimeList: RowMaybeDesc[] = oneTimeRows ?? [];
 
   return (
     <main className="max-w-4xl mx-auto p-6 space-y-6">
@@ -230,21 +233,11 @@ export default function OrderPage({
 
       {/* Bestellformular (klassischer POST) */}
       <Section title="Verbindliche Bestellung">
-        <form
-          method="post"
-          action="/api/place-order"
-          className="space-y-3"
-        >
+        <form method="post" action="/api/place-order" className="space-y-3">
           {/* Token für die API */}
           <input type="hidden" name="token" value={token} />
-
           <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              name="agb"
-              required
-              className="mt-[3px]"
-            />
+            <input type="checkbox" name="agb" required className="mt-[3px]" />
             <span>
               Ich bestätige die verbindliche Bestellung zu den oben
               aufgeführten Konditionen. Mir ist bekannt, dass die Preise netto
