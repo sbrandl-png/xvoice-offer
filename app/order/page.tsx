@@ -1,11 +1,14 @@
-// app/order/page.tsx
-import React from "react";
+"use client";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import React, { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Check, ShoppingCart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
-/* ===== BRAND / COMPANY ===== */
+// ===== BRAND / COMPANY =====
 const BRAND = {
   name: "xVoice UC",
   primary: "#ff4e00",
@@ -26,317 +29,345 @@ const COMPANY = {
   register: "Amtsgericht Siegburg, HRB 19078",
 };
 
-/* ===== kleine Base64url-Helpers ===== */
-function b64url(buf: Buffer | Uint8Array | string) {
-  const b = typeof buf === "string" ? Buffer.from(buf, "utf8") : Buffer.from(buf);
-  return b.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-function fromB64urlToBuf(b64u: string) {
-  const pad = "===".slice((b64u.length + 3) % 4);
-  return Buffer.from(b64u.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
-}
-async function hmacSha256(key: string, data: string) {
-  const { createHmac } = await import("node:crypto");
-  return createHmac("sha256", key).update(data).digest();
-}
-async function timingSafeEqualSafe(a: Buffer, b: Buffer) {
-  const { timingSafeEqual } = await import("node:crypto");
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
+// ===== ENDPOINTS =====
+const ORDER_ENDPOINT = "/api/place-order";
 
-/* ===== Typen ===== */
-type Row = { sku: string; name: string; quantity: number; unit: number; total: number };
+// ===== TYPES =====
+type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
 type OrderPayload = {
   offerId: string;
   customer: { company: string; contact: string; email: string; phone?: string };
-  monthlyRows: Row[];
-  oneTimeRows: Row[];
+  monthlyRows: OrderRow[];
+  oneTimeRows: OrderRow[];
   vatRate: number;
   createdAt: number;
 };
 
-/* ===== Utils ===== */
+// ===== UTILS =====
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("de-DE", {
-    style: "currency",
-    currency: "EUR",
-    minimumFractionDigits: 2,
-  }).format(value);
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
 }
-
-/* ===== Token-Verifikation ===== */
-async function verifyToken(token: string) {
-  const ORDER_SECRET = process.env.ORDER_SECRET || "";
-  if (!ORDER_SECRET) return { ok: false as const, error: "ORDER_SECRET ist nicht gesetzt." };
-  if (!token || typeof token !== "string") return { ok: false as const, error: "Token fehlt." };
-
-  const parts = token.split(".");
-  if (parts.length !== 3) return { ok: false as const, error: "Token-Format ungültig." };
-
-  const [headB64, bodyB64, sigB64] = parts;
-
-  try {
-    const headerJson = fromB64urlToBuf(headB64).toString("utf8");
-    const header = JSON.parse(headerJson);
-    if (!header || header.alg !== "HS256") {
-      return { ok: false as const, error: "Header/Algorithmus nicht unterstützt." };
-    }
-  } catch {
-    return { ok: false as const, error: "Header nicht lesbar." };
+function b64urlToUtf8(b64url: string) {
+  // base64url -> base64
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((b64url.length + 3) % 4);
+  if (typeof window !== "undefined" && "atob" in window) {
+    return decodeURIComponent(
+      Array.prototype.map
+        .call(atob(b64), (c: string) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
   }
-
-  const toSign = `${headB64}.${bodyB64}`;
-  const expected = await hmacSha256(ORDER_SECRET, toSign);
-
-  let got: Buffer;
+  // Fallback (Node) – sollte clientseitig nicht benötigt werden
+  return Buffer.from(b64, "base64").toString("utf-8");
+}
+function safeDecodeJwtPayload<T = any>(token: string): { ok: true; payload: T } | { ok: false; error: string } {
   try {
-    got = fromB64urlToBuf(sigB64);
-  } catch {
-    return { ok: false as const, error: "Signatur nicht lesbar." };
-  }
-
-  if (!(await timingSafeEqualSafe(got, expected))) {
-    return { ok: false as const, error: "Signatur ungültig." };
-  }
-
-  try {
-    const bodyJson = fromB64urlToBuf(bodyB64).toString("utf8");
-    const payload = JSON.parse(bodyJson) as OrderPayload;
-    return { ok: true as const, payload };
-  } catch {
-    return { ok: false as const, error: "Payload nicht lesbar." };
+    const parts = token.split(".");
+    if (parts.length !== 3) return { ok: false, error: "Token-Format ungültig" };
+    const json = b64urlToUtf8(parts[1] || "");
+    const obj = JSON.parse(json);
+    return { ok: true, payload: obj as T };
+  } catch (e: any) {
+    return { ok: false, error: "Token nicht lesbar" };
   }
 }
+function fullAddress(c: OrderPayload["customer"]) {
+  const a: string[] = [];
+  if (c.company) a.push(c.company);
+  if (c.contact) a.push(c.contact);
+  return a.join(" · ");
+}
 
-/* ===== Design ===== */
-function PageHeader() {
+function Header() {
   return (
     <div
-      className="flex items-center justify-between gap-4 p-6 shadow-sm"
-      style={{
-        background: BRAND.headerBg,
-        color: BRAND.headerFg,
-        borderTopLeftRadius: "14px",
-        borderTopRightRadius: "14px",
-        borderBottomLeftRadius: "0px",
-        borderBottomRightRadius: "0px",
-      }}
+      className="rounded-2xl shadow-sm overflow-hidden"
+      style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
     >
-      <div className="flex items-center gap-6">
-        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-16 w-16 object-contain" />
-        <div>
-          <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
-            Bestellung · xVoice UC
-          </div>
-          <div className="text-xl font-semibold" style={{ color: BRAND.headerFg }}>
-            Bestätigung & Zusammenfassung
+      <div className="p-5 flex items-center justify-between">
+        <div className="flex items-center gap-5">
+          <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-14 w-14 object-contain" />
+          <div className="leading-tight">
+            <div className="text-sm opacity-80">Bestellübersicht</div>
+            <div className="text-xl font-semibold">{BRAND.name}</div>
           </div>
         </div>
+        <div className="text-sm opacity-80">Stand {todayIso()}</div>
       </div>
-      <div className="text-sm" style={{ color: "#d1d5db" }}>
-        Stand {new Date().toISOString().slice(0, 10)}
-      </div>
+      {/* Orange Akzentlinie wie in der Mail */}
+      <div style={{ height: 3, background: BRAND.primary }} />
     </div>
   );
 }
 
-function AccentLine() {
-  return <div style={{ height: 3, background: BRAND.primary }} />;
-}
+function Totals({ rows, vatRate, title }: { rows: OrderRow[]; vatRate: number; title: string }) {
+  const netList = rows.reduce((a, r) => a + r.unit * r.quantity, 0); // „Listenpreis“ ist hier identisch zu unit
+  const netOffer = rows.reduce((a, r) => a + r.total, 0);
+  const discount = Math.max(0, netList - netOffer);
+  const vat = netOffer * vatRate;
+  const gross = netOffer + vat;
 
-function CardSection({ title, children }: React.PropsWithChildren<{ title: string }>) {
+  const Row = ({ label, value, strong }: { label: string; value: string; strong?: boolean }) => (
+    <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-8">
+      <span className={strong ? "font-semibold" : undefined}>{label}</span>
+      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>{value}</span>
+    </div>
+  );
+
   return (
-    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-      <h2 className="font-medium mb-3" style={{ color: BRAND.dark }}>
-        {title}
-      </h2>
-      {children}
-    </section>
+    <div className="space-y-1 text-sm">
+      <div className="text-sm font-medium mb-1">{title}</div>
+      <Row label="Listen-Zwischensumme (netto)" value={formatMoney(netList)} />
+      {discount > 0 && <Row label="Rabatt gesamt" value={"−" + formatMoney(discount)} />}
+      <Row label={discount > 0 ? "Zwischensumme nach Rabatt" : "Zwischensumme (netto)"} value={formatMoney(netOffer)} />
+      <Row label={`zzgl. USt. (${Math.round(vatRate * 100)}%)`} value={formatMoney(vat)} />
+      <Row label="Bruttosumme" value={formatMoney(gross)} strong />
+    </div>
   );
 }
 
-function LegalFooter() {
-  return (
-    <footer className="text-xs text-neutral-600 mt-8 pt-4 border-t">
-      <p>{COMPANY.legal}</p>
-      <p>
-        {COMPANY.street}, {COMPANY.zip} {COMPANY.city}
-      </p>
-      <p>
-        Tel. {COMPANY.phone} · {COMPANY.email} · {COMPANY.web}
-      </p>
-      <p>{COMPANY.register}</p>
-      <p>© {new Date().getFullYear()} xVoice UC · Impressum & Datenschutz auf xvoice-uc.de</p>
-    </footer>
-  );
-}
+function OrderClient() {
+  const search = useSearchParams();
+  const token = (search.get("token") || "").trim();
 
-function ErrorBox({ title, message, fingerprint }: { title: string; message: string; fingerprint?: string }) {
-  return (
-    <main className="mx-auto max-w-xl p-6">
-      <PageHeader />
-      <AccentLine />
-      <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h1 className="text-xl font-semibold mb-2">{title}</h1>
-        <p className="text-sm text-neutral-700">{message}</p>
-        <p className="text-xs text-neutral-500 mt-2">
-          Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.
-        </p>
-        {fingerprint && (
-          <p className="text-xs text-neutral-400 mt-2">Token-Fingerprint: {fingerprint}</p>
-        )}
-      </div>
-      <LegalFooter />
-    </main>
-  );
-}
+  const decoded = useMemo(() => safeDecodeJwtPayload<OrderPayload>(token), [token]);
 
-/* ===== Hauptkomponente ===== */
-export default async function OrderPage(props: { searchParams?: Record<string, string | string[]> }) {
-  try {
-    const tokenParam = props?.searchParams?.token;
-    const token = Array.isArray(tokenParam) ? tokenParam[0] : tokenParam;
+  const [accept, setAccept] = useState(false);
+  const [signer, setSigner] = useState<{ name: string; email: string; phone?: string }>({
+    name: "",
+    email: "",
+    phone: "",
+  });
+  const [sending, setSending] = useState(false);
+  const [ok, setOk] = useState(false);
+  const [error, setError] = useState("");
 
-    if (!token) {
-      return (
-        <ErrorBox
-          title="Ungültiger oder beschädigter Bestelllink"
-          message="Token-Parameter fehlt."
-          fingerprint="missing-token"
-        />
-      );
+  const payload = decoded.ok ? decoded.payload : null;
+
+  const monthlyRows = payload?.monthlyRows || [];
+  const oneTimeRows = payload?.oneTimeRows || [];
+  const vatRate = payload?.vatRate ?? 0.19;
+
+  async function submit() {
+    try {
+      if (!token) throw new Error("Fehlender Token.");
+      if (!accept) throw new Error("Bitte bestätigen Sie AGB & Widerrufsbelehrung.");
+      if (!signer.name || !signer.email) throw new Error("Bitte Name und E-Mail des Unterzeichners angeben.");
+
+      setSending(true);
+      setError("");
+      setOk(false);
+
+      const res = await fetch(ORDER_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submit: true,
+          token,
+          accept: true,
+          signer,
+          context: {
+            customer: payload?.customer,
+            monthlyRows,
+            oneTimeRows,
+            vatRate,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data = await res.json().catch(() => ({}));
+      setOk(true);
+      // Optional: Redirect auf Danke-Seite
+      // router.push(`/order/success?orderId=${encodeURIComponent(data.orderId || "")}`)
+    } catch (e: any) {
+      setError(String(e?.message || e));
+    } finally {
+      setSending(false);
     }
-
-    const result = await verifyToken(token);
-
-    if (!result.ok) {
-      const short = token.length > 24 ? token.slice(0, 10) + "…" + token.slice(-10) : token;
-      return (
-        <ErrorBox
-          title="Ungültiger oder beschädigter Bestelllink"
-          message={result.error}
-          fingerprint={`jwt:${short}`}
-        />
-      );
-    }
-
-    const { payload } = result;
-    const mNet = payload.monthlyRows.reduce((a, r) => a + (r.total || 0), 0);
-    const oNet = payload.oneTimeRows.reduce((a, r) => a + (r.total || 0), 0);
-    const vatM = mNet * payload.vatRate;
-    const vatO = oNet * payload.vatRate;
-
-    return (
-      <main className="mx-auto max-w-3xl p-6">
-        <PageHeader />
-        <AccentLine />
-
-        <div className="mt-6 mb-4 text-sm text-neutral-700">
-          Angebot <strong>{payload.offerId}</strong> · erstellt am{" "}
-          {new Date(payload.createdAt).toLocaleString("de-DE")}
-        </div>
-
-        <CardSection title="Kundendaten">
-          <div className="text-sm text-neutral-800">
-            <div><strong>Firma:</strong> {payload.customer.company || "—"}</div>
-            <div><strong>Ansprechpartner:</strong> {payload.customer.contact || "—"}</div>
-            <div><strong>E-Mail:</strong> {payload.customer.email || "—"}</div>
-            <div><strong>Telefon:</strong> {payload.customer.phone || "—"}</div>
-          </div>
-        </CardSection>
-
-        <div className="h-4" />
-        <CardSection title="Monatliche Positionen">
-          {payload.monthlyRows.length === 0 ? (
-            <div className="text-sm text-neutral-600">Keine.</div>
-          ) : (
-            <ul className="text-sm space-y-1">
-              {payload.monthlyRows.map((r, i) => (
-                <li key={`m-${i}`} className="flex justify-between gap-3">
-                  <span>{r.quantity}× {r.name} ({r.sku})</span>
-                  <span className="tabular-nums">{formatMoney(r.total)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-3 text-sm border-t pt-2">
-            <div className="flex justify-between">
-              <span>Zwischensumme (netto)</span>
-              <span className="tabular-nums">{formatMoney(mNet)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>zzgl. USt.</span>
-              <span className="tabular-nums">{formatMoney(vatM)}</span>
-            </div>
-            <div className="flex justify-between font-semibold">
-              <span>Brutto</span>
-              <span className="tabular-nums">{formatMoney(mNet + vatM)}</span>
-            </div>
-          </div>
-        </CardSection>
-
-        <div className="h-4" />
-        <CardSection title="Einmalige Positionen">
-          {payload.oneTimeRows.length === 0 ? (
-            <div className="text-sm text-neutral-600">Keine.</div>
-          ) : (
-            <ul className="text-sm space-y-1">
-              {payload.oneTimeRows.map((r, i) => (
-                <li key={`o-${i}`} className="flex justify-between gap-3">
-                  <span>{r.quantity}× {r.name} ({r.sku})</span>
-                  <span className="tabular-nums">{formatMoney(r.total)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-3 text-sm border-t pt-2">
-            <div className="flex justify-between">
-              <span>Zwischensumme (netto)</span>
-              <span className="tabular-nums">{formatMoney(oNet)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span>zzgl. USt.</span>
-              <span className="tabular-nums">{formatMoney(vatO)}</span>
-            </div>
-            <div className="flex justify-between font-semibold">
-              <span>Brutto</span>
-              <span className="tabular-nums">{formatMoney(oNet + vatO)}</span>
-            </div>
-          </div>
-        </CardSection>
-
-        <form action="/api/place-order" method="post" className="mt-6">
-          <input type="hidden" name="orderIntent" value="true" />
-          <input
-            type="hidden"
-            name="token"
-            value={
-              Array.isArray(props?.searchParams?.token)
-                ? props?.searchParams?.token[0]
-                : props?.searchParams?.token || ""
-            }
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 rounded-lg text-white"
-            style={{ background: BRAND.primary }}
-          >
-            Jetzt verbindlich bestellen
-          </button>
-        </form>
-
-        <LegalFooter />
-      </main>
-    );
-  } catch (e: any) {
-    console.error("[/order] Uncaught:", e?.stack || e);
-    return (
-      <ErrorBox
-        title="Application error"
-        message="Interner Fehler beim Rendern der Bestellseite."
-        fingerprint="order-page-uncaught"
-      />
-    );
   }
+
+  return (
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <Header />
+
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="p-6">
+          {!token ? (
+            <div className="text-red-600 text-sm">
+              Ungültiger oder beschädigter Bestelllink<br />
+              <span className="opacity-75">Fehler: Kein Token gefunden</span>
+            </div>
+          ) : !decoded.ok ? (
+            <div className="text-red-600 text-sm">
+              Ungültiger oder beschädigter Bestelllink<br />
+              <span className="opacity-75">Fehler: {decoded.error}</span>
+              <div className="mt-2 text-xs opacity-60">Token-Fingerprint: {token.slice(0, 12)}…</div>
+            </div>
+          ) : (
+            <>
+              {/* Adresskasten */}
+              <div className="rounded-xl border p-4 bg-[#f6f7fb]">
+                <div className="text-sm text-muted-foreground">Bestellnummer</div>
+                <div className="text-lg font-semibold">{payload?.offerId || "—"}</div>
+                <div className="mt-3 text-sm">
+                  <div className="font-medium">Kunde</div>
+                  <div>{fullAddress(payload!.customer)}</div>
+                  {payload!.customer.email && <div className="opacity-75">{payload!.customer.email}</div>}
+                  {payload!.customer.phone && <div className="opacity-75">{payload!.customer.phone}</div>}
+                </div>
+              </div>
+
+              {/* Monatliche Positionen */}
+              <div className="mt-6">
+                <div className="text-lg font-semibold mb-2">Monatliche Positionen</div>
+                {monthlyRows.length === 0 ? (
+                  <div className="text-sm opacity-70">Keine monatlichen Positionen.</div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[minmax(240px,1fr)_100px_120px_120px] gap-3 text-xs uppercase text-muted-foreground pb-2 border-b">
+                      <div>Position</div>
+                      <div>Menge</div>
+                      <div>Einzelpreis</div>
+                      <div className="text-right">Summe</div>
+                    </div>
+                    {monthlyRows.map((r) => (
+                      <div key={`m-${r.sku}`} className="grid grid-cols-[minmax(240px,1fr)_100px_120px_120px] gap-3 py-2 border-b last:border-none">
+                        <div>
+                          <div className="font-medium">{r.name}</div>
+                          <div className="text-xs text-muted-foreground">{r.sku}</div>
+                        </div>
+                        <div className="tabular-nums">{r.quantity}</div>
+                        <div className="tabular-nums">{formatMoney(r.unit)}</div>
+                        <div className="tabular-nums text-right font-semibold">{formatMoney(r.total)}</div>
+                      </div>
+                    ))}
+                    <div className="pt-2">
+                      <Totals rows={monthlyRows} vatRate={vatRate} title="Summe (monatlich)" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Einmalige Positionen */}
+              <div className="mt-6">
+                <div className="text-lg font-semibold mb-2">Einmalige Positionen</div>
+                {oneTimeRows.length === 0 ? (
+                  <div className="text-sm opacity-70">Keine einmaligen Positionen.</div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-[minmax(240px,1fr)_100px_120px_120px] gap-3 text-xs uppercase text-muted-foreground pb-2 border-b">
+                      <div>Position</div>
+                      <div>Menge</div>
+                      <div>Einzelpreis</div>
+                      <div className="text-right">Summe</div>
+                    </div>
+                    {oneTimeRows.map((r) => (
+                      <div key={`o-${r.sku}`} className="grid grid-cols-[minmax(240px,1fr)_100px_120px_120px] gap-3 py-2 border-b last:border-none">
+                        <div>
+                          <div className="font-medium">{r.name}</div>
+                          <div className="text-xs text-muted-foreground">{r.sku}</div>
+                        </div>
+                        <div className="tabular-nums">{r.quantity}</div>
+                        <div className="tabular-nums">{formatMoney(r.unit)}</div>
+                        <div className="tabular-nums text-right font-semibold">{formatMoney(r.total)}</div>
+                      </div>
+                    ))}
+                    <div className="pt-2">
+                      <Totals rows={oneTimeRows} vatRate={vatRate} title="Summe (einmalig)" />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* AGB/Widerruf + Signer + Submit */}
+              <div className="mt-8 grid gap-4">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-[3px]"
+                    checked={accept}
+                    onChange={(e) => setAccept(e.target.checked)}
+                  />
+                  <span>
+                    Ich bestätige die{" "}
+                    <a href="/agb" target="_blank" rel="noopener" className="underline">AGB</a>,{" "}
+                    <a href="/widerruf" target="_blank" rel="noopener" className="underline">Widerrufsbelehrung</a>{" "}
+                    und die{" "}
+                    <a href="/datenschutz" target="_blank" rel="noopener" className="underline">Datenschutzhinweise</a>.
+                  </span>
+                </label>
+
+                <div className="grid md:grid-cols-3 gap-3">
+                  <div className="grid gap-1.5">
+                    <Label className="text-sm">Unterzeichner – Name</Label>
+                    <Input
+                      placeholder="Vor- und Nachname"
+                      value={signer.name}
+                      onChange={(e) => setSigner({ ...signer, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-sm">Unterzeichner – E-Mail</Label>
+                    <Input
+                      type="email"
+                      placeholder="name@firma.de"
+                      value={signer.email}
+                      onChange={(e) => setSigner({ ...signer, email: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label className="text-sm">Telefon (optional)</Label>
+                    <Input
+                      placeholder="+49 ..."
+                      value={signer.phone || ""}
+                      onChange={(e) => setSigner({ ...signer, phone: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Button
+                    onClick={submit}
+                    disabled={sending || !accept || !signer.name || !signer.email}
+                    className="gap-2"
+                    style={{ backgroundColor: BRAND.primary }}
+                  >
+                    <ShoppingCart size={16} /> Jetzt verbindlich bestellen
+                  </Button>
+                  {ok && (
+                    <div className="mt-3 flex items-center gap-2 text-green-700 text-sm">
+                      <Check size={16} /> Bestellung übermittelt.
+                    </div>
+                  )}
+                  {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* FOOTER mit rechtlichen Angaben */}
+      <footer className="text-xs text-center opacity-70 pt-2">
+        <div>{COMPANY.legal}</div>
+        <div>
+          {COMPANY.street}, {COMPANY.zip} {COMPANY.city} · Tel. {COMPANY.phone} · {COMPANY.email} · {COMPANY.web}
+        </div>
+        <div>{COMPANY.register}</div>
+        <div>© {new Date().getFullYear()} xVoice UC</div>
+      </footer>
+    </div>
+  );
+}
+
+// Suspense-Wrapper, damit useSearchParams in Next App Router sauber läuft
+export default function Page() {
+  return (
+    <Suspense fallback={<div className="max-w-5xl mx-auto p-6">Lade…</div>}>
+      <OrderClient />
+    </Suspense>
+  );
 }
