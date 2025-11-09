@@ -11,13 +11,9 @@ import { signOrderPayload } from "@/lib/orderToken";
 
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
- * - Per-Item-Rabatte mit Caps (Monatlich: XVPR/XVDV/XVMO 40%, XVTE 20%, XVCRM 20%, XVF2M 100%, XVPS 0)
- * - XVPS-Menge = XVPR + XVDV + XVMO (read-only)
- * - Setup-Pauschale (einmalig) abhängig von Anzahl Kernlizenzen (XVPR+XVDV+XVMO), aus CSV (optional) oder Fallback
- * - Hardware (einmalig) aus CSV (optional) oder Fallback, max. 10% Rabatt
- * - Angebots-HTML: klare Trennung monatlich vs. einmalig, Listen- vs. Angebotspreis, orange Trennlinie über CEO-Block
- * - Gleich breite Eingabefelder für Menge & Rabatt
- * - Stabile Preview/Download/Copy
+ * - Per-Item-Rabatte mit Caps, auto XVPS, Setup-Tiers + Hardware
+ * - Order-Token wird in Bestell-Button ({{OFFER_TOKEN}}) injiziert und per Mail mit verschickt
+ * - salesperson NICHT im OrderPayload (nur im Mail-Payload)
  */
 
 // ===== BRAND / COMPANY =====
@@ -27,7 +23,8 @@ const BRAND = {
   dark: "#111111",
   headerBg: "#000000",
   headerFg: "#ffffff",
-  logoUrl: "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
+  logoUrl:
+    "https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x",
 };
 
 const COMPANY = {
@@ -41,15 +38,15 @@ const COMPANY = {
   register: "Amtsgericht Siegburg, HRB 19078",
 };
 
-// ===== TYPES =====
+// ===== TYPES (lokal) =====
 type CatalogItem = {
   sku: string;
   name: string;
-  price: number;
-  unit?: string;
+  price: number; // Listenpreis netto
+  unit?: string; // "/Monat" | "Stück" | ...
   desc?: string;
   billing: "monthly" | "one-time";
-  maxDiscountPct?: number;
+  maxDiscountPct?: number; // Cap je Position
 };
 
 type SetupTier = {
@@ -57,7 +54,7 @@ type SetupTier = {
   maxLicenses: number; // inkl.; letzte Stufe Infinity
   sku: string;
   name: string;
-  price: number;
+  price: number; // einmalig netto
 };
 
 type Customer = {
@@ -78,96 +75,6 @@ type Salesperson = {
   phone: string;
 };
 
-// ===== MONATLICHER KATALOG =====
-const MONTHLY: CatalogItem[] = [
-  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", billing: "monthly", desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.", maxDiscountPct: 40 },
-  { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", billing: "monthly", desc: "Lizenz für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.", maxDiscountPct: 40 },
-  { sku: "XVMO", name: "xVoice UC Smartphone Only", price: 5.70, unit: "/Monat", billing: "monthly", desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).", maxDiscountPct: 40 },
-  { sku: "XVTE", name: "xVoice UC Teams Integration", price: 4.75, unit: "/Monat", billing: "monthly", desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).", maxDiscountPct: 20 },
-  { sku: "XVPS", name: "xVoice UC Premium Service 4h SLA (je Lizenz)", price: 1.35, unit: "/Monat", billing: "monthly", desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.", maxDiscountPct: 0 },
-  { sku: "XVCRM", name: "xVoice UC Software Integration Lizenz", price: 5.95, unit: "/Monat", billing: "monthly", desc: "Nahtlose Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).", maxDiscountPct: 20 },
-  { sku: "XVF2M", name: "xVoice UC Fax2Mail Service", price: 0.99, unit: "/Monat", billing: "monthly", desc: "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).", maxDiscountPct: 100 },
-];
-
-// ===== SETUP-TIERS: Fallback =====
-const SETUP_TIERS_FALLBACK: SetupTier[] = [
-  { minLicenses: 1, maxLicenses: 10, sku: "XVIKS10", name: "Installations- & Konfigurationspauschale bis 10 User", price: 299.0 },
-  { minLicenses: 11, maxLicenses: 20, sku: "XVIKS20", name: "Installations- & Konfigurationspauschale bis 20 User", price: 399.0 },
-  { minLicenses: 21, maxLicenses: 50, sku: "XVIKS50", name: "Installations- & Konfigurationspauschale bis 50 User", price: 899.0 },
-  { minLicenses: 51, maxLicenses: 100, sku: "XVIKS100", name: "Installations- & Konfigurationspauschale bis 100 User", price: 1299.0 },
-  { minLicenses: 101, maxLicenses: 200, sku: "XVIKS200", name: "Installations- & Konfigurationspauschale bis 200 User", price: 1699.0 },
-  { minLicenses: 201, maxLicenses: 500, sku: "XVIKS500", name: "Installations- & Konfigurationspauschale bis 500 User", price: 1999.0 },
-  { minLicenses: 501, maxLicenses: 1000, sku: "XVIKS1000", name: "Installations- & Konfigurationspauschale bis 1000 User", price: 2999.0 },
-  { minLicenses: 1001, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVIKS_XXL", name: "Installations- & Konfigurationspauschale (XXL)", price: 4999.0 },
-];
-
-// ===== HARDWARE: Fallback =====
-const HARDWARE_MAX_DEFAULT = 10;
-const HARDWARE_FALLBACK: CatalogItem[] = [
-  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 149.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-T57W", name: "Yealink T57W IP-Telefon", price: 229.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-T58W", name: "Yealink T58W IP-Telefon", price: 259.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-T58W-PRO", name: "Yealink T58W Pro IP-Telefon", price: 289.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi, schnurloser Hörer", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 109.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W74P", name: "Yealink W74P DECT-Basis + Hörer", price: 129.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W78P", name: "Yealink W78P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W73H", name: "Yealink W73H Handset", price: 69.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W74H", name: "Yealink W74H Handset", price: 89.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W78H", name: "Yealink W78H Handset", price: 99.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W90DM", name: "Yealink W90 DECT Manager", price: 249.0, billing: "one-time", unit: "Stück", desc: "DECT-Multizellen-Manager für größere DECT-Umgebungen", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-W90B", name: "Yealink W90 DECT Base Station", price: 249.0, billing: "one-time", unit: "Stück", desc: "DECT-Multizellen-Basisstation; erfordert bei Ersteinrichtung einen DECT-Manager", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-WH64M", name: "Yealink WH64 mono Headset", price: 149.0, billing: "one-time", unit: "Stück", desc: "Monaurales Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-WH64D", name: "Yealink WH64 duo Headset", price: 159.0, billing: "one-time", unit: "Stück", desc: "Biaurales Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "YEA-WH68D", name: "Yealink WH68 duo hybrid Headset", price: 159.0, billing: "one-time", unit: "Stück", desc: "Biaurales Premium-Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-D810", name: "Gigaset D810 IP Pro", price: 99.0, billing: "one-time", unit: "Stück", desc: "Professionelles IP-Tischtelefon mit 3,36″ TFT-Display", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-D820", name: "Gigaset D820 IP Pro", price: 119.0, billing: "one-time", unit: "Stück", desc: "Professionelles IP-Tischtelefon mit 5″ TFT-Display", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-D825", name: "Gigaset D825 IP Pro", price: 129.0, billing: "one-time", unit: "Stück", desc: "Professionelles IP-Tischtelefon mit 5″ TFT-Display", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-D850W", name: "Gigaset D850W IP Pro", price: 139.0, billing: "one-time", unit: "Stück", desc: "Professionelles IP-Tischtelefon mit 5″ TFT-Display und WLAN", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-D855BW", name: "Gigaset D855BW IP Pro", price: 159.0, billing: "one-time", unit: "Stück", desc: "Professionelles IP-Tischtelefon mit 5″ TFT-Display, Bluetooth und WLAN", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-  { sku: "GIG-P800KP", name: "Gigaset P800 Key Pro Tastenmodul", price: 119.0, billing: "one-time", unit: "Stück", desc: "Erweiterungsmodul für IP-Tischtelefone mit 20 physischen Tasten", maxDiscountPct: HARDWARE_MAX_DEFAULT },
-];
-
-// ===== ENDPOINTS =====
-const EMAIL_ENDPOINT = "/api/send-offer";
-const ORDER_ENDPOINT = "/api/place-order";
-
-// ===== UTILS =====
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
-}
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
-function escapeHtml(str: string) {
-  return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
-}
-function fullCustomerAddress(c: Customer) {
-  const lines = [c.company || "", c.contact || "", c.street || "", [c.zip, c.city].filter(Boolean).join(" "), c.email || "", c.phone || ""].filter(Boolean);
-  return lines.join("\n");
-}
-function greetingLine(c: Customer) {
-  const name = (c.contact || "").trim();
-  if (!name) return "Guten Tag,";
-  return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : `Sehr geehrter Herr ${name},`;
-}
-function detectDelimiter(headerLine: string) {
-  if (headerLine.includes(";") && !headerLine.includes(",")) return ";";
-  return ",";
-}
-function parseCsvLines(csv: string): string[][] {
-  const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0);
-  if (lines.length === 0) return [];
-  const delim = detectDelimiter(lines[0]);
-  return lines.map(line => {
-    return line.split(delim).map(cell => {
-      const t = cell.trim();
-      const m = t.match(/^"(.*)"$/);
-      return m ? m[1].replace(/""/g, '"') : t;
-    });
-  });
-}
-
-// ===== EMAIL HTML =====
 type BuiltRow = {
   sku: string;
   name: string;
@@ -180,6 +87,179 @@ type BuiltRow = {
   badgePct: number;
 };
 
+// ===== MONATLICHER KATALOG =====
+const MONTHLY: CatalogItem[] = [
+  {
+    sku: "XVPR",
+    name: "xVoice UC Premium",
+    price: 8.95,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVDV",
+    name: "xVoice UC Device Only",
+    price: 3.85,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Lizenz für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVMO",
+    name: "xVoice UC Smartphone Only",
+    price: 5.70,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVTE",
+    name: "xVoice UC Teams Integration",
+    price: 4.75,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).",
+    maxDiscountPct: 20,
+  },
+  {
+    sku: "XVPS",
+    name: "xVoice UC Premium Service 4h SLA (je Lizenz)",
+    price: 1.35,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
+    maxDiscountPct: 0,
+  },
+  {
+    sku: "XVCRM",
+    name: "xVoice UC Software Integration Lizenz",
+    price: 5.95,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Nahtlose Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
+    maxDiscountPct: 20,
+  },
+  {
+    sku: "XVF2M",
+    name: "xVoice UC Fax2Mail Service",
+    price: 0.99,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
+    maxDiscountPct: 100,
+  },
+];
+
+// ===== SETUP-TIERS Fallback =====
+const SETUP_TIERS_FALLBACK: SetupTier[] = [
+  { minLicenses: 1, maxLicenses: 10, sku: "XVIKS10", name: "Installations- & Konfigurationspauschale bis 10 User", price: 299.0 },
+  { minLicenses: 11, maxLicenses: 20, sku: "XVIKS20", name: "Installations- & Konfigurationspauschale bis 20 User", price: 399.0 },
+  { minLicenses: 21, maxLicenses: 50, sku: "XVIKS50", name: "Installations- & Konfigurationspauschale bis 50 User", price: 899.0 },
+  { minLicenses: 51, maxLicenses: 100, sku: "XVIKS100", name: "Installations- & Konfigurationspauschale bis 100 User", price: 1299.0 },
+  { minLicenses: 101, maxLicenses: 200, sku: "XVIKS200", name: "Installations- & Konfigurationspauschale bis 200 User", price: 1699.0 },
+  { minLicenses: 201, maxLicenses: 500, sku: "XVIKS500", name: "Installations- & Konfigurationspauschale bis 500 User", price: 1999.0 },
+  { minLicenses: 501, maxLicenses: 1000, sku: "XVIKS1000", name: "Installations- & Konfigurationspauschale bis 1000 User", price: 2999.0 },
+  { minLicenses: 1001, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVIKS_XXL", name: "Installations- & Konfigurationspauschale (XXL)", price: 4999.0 },
+];
+
+// ===== HARDWARE Fallback =====
+const HARDWARE_MAX_DEFAULT = 10;
+const HARDWARE_FALLBACK: CatalogItem[] = [
+  { sku: "YEA-T54W", name: "Yealink T54W IP-Telefon", price: 149.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T57W", name: "Yealink T57W IP-Telefon", price: 229.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T58W", name: "Yealink T58W IP-Telefon", price: 259.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-T58W-PRO", name: "Yealink T58W Pro IP-Telefon", price: 289.0, billing: "one-time", unit: "Stück", desc: "GigE, USB, BT, Wi-Fi, schnurloser Hörer", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+
+  { sku: "YEA-W73P", name: "Yealink W73P DECT-Basis + Hörer", price: 109.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W74P", name: "Yealink W74P DECT-Basis + Hörer", price: 129.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W78P", name: "Yealink W78P DECT-Basis + Hörer", price: 149.0, billing: "one-time", unit: "Set", desc: "Mobilteil inkl. Basis", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W73H", name: "Yealink W73H Handset", price: 69.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W74H", name: "Yealink W74H Handset", price: 89.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W78H", name: "Yealink W78H Handset", price: 99.0, billing: "one-time", unit: "Stück", desc: "Mobilteil inkl. Ladeschale", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+
+  { sku: "YEA-W90DM", name: "Yealink W90 DECT Manager", price: 249.0, billing: "one-time", unit: "Stück", desc: "DECT-Multizellen-Manager", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-W90B", name: "Yealink W90 DECT Base Station", price: 249.0, billing: "one-time", unit: "Stück", desc: "DECT-Multizellen-Basisstation", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+
+  { sku: "YEA-WH64M", name: "Yealink WH64 mono Headset", price: 149.0, billing: "one-time", unit: "Stück", desc: "Monaurales Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-WH64D", name: "Yealink WH64 duo Headset", price: 159.0, billing: "one-time", unit: "Stück", desc: "Biaurales Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "YEA-WH68D", name: "Yealink WH68 duo hybrid Headset", price: 159.0, billing: "one-time", unit: "Stück", desc: "Biaurales Premium-Business-Headset", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+
+  { sku: "GIG-D810", name: "Gigaset D810 IP Pro", price: 99.0, billing: "one-time", unit: "Stück", desc: "IP-Tischtelefon 3,36″ TFT", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "GIG-D820", name: "Gigaset D820 IP Pro", price: 119.0, billing: "one-time", unit: "Stück", desc: "IP-Tischtelefon 5″ TFT", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "GIG-D825", name: "Gigaset D825 IP Pro", price: 129.0, billing: "one-time", unit: "Stück", desc: "IP-Tischtelefon 5″ TFT", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "GIG-D850W", name: "Gigaset D850W IP Pro", price: 139.0, billing: "one-time", unit: "Stück", desc: "IP-Tischtelefon 5″ TFT, WLAN", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "GIG-D855BW", name: "Gigaset D855BW IP Pro", price: 159.0, billing: "one-time", unit: "Stück", desc: "IP-Tischtelefon 5″ TFT, BT, WLAN", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+  { sku: "GIG-P800KP", name: "Gigaset P800 Key Pro Tastenmodul", price: 119.0, billing: "one-time", unit: "Stück", desc: "20 physische Tasten", maxDiscountPct: HARDWARE_MAX_DEFAULT },
+];
+
+// ===== ENDPOINTS =====
+const EMAIL_ENDPOINT = "/api/send-offer";
+const ORDER_ENDPOINT = "/api/place-order";
+
+// ===== UTILS =====
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+function escapeHtml(str: string) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+function fullCustomerAddress(c: Customer) {
+  const lines = [
+    c.company || "",
+    c.contact || "",
+    c.street || "",
+    [c.zip, c.city].filter(Boolean).join(" "),
+    c.email || "",
+    c.phone || "",
+  ].filter(Boolean);
+  return lines.join("\n");
+}
+function greetingLine(c: Customer) {
+  const name = (c.contact || "").trim();
+  if (!name) return "Guten Tag,";
+  return c.salutation === "Frau" ? `Sehr geehrte Frau ${name},` : `Sehr geehrter Herr ${name},`;
+}
+function detectDelimiter(headerLine: string) {
+  if (headerLine.includes(";") && !headerLine.includes(",")) return ";";
+  return ",";
+}
+function parseCsvLines(csv: string): string[][] {
+  const lines = csv.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (lines.length === 0) return [];
+  const delim = detectDelimiter(lines[0]);
+  return lines.map((line) => {
+    return line.split(delim).map((cell) => {
+      const t = cell.trim();
+      const m = t.match(/^"(.*)"$/);
+      return m ? m[1].replace(/""/g, '"') : t;
+    });
+  });
+}
+
+// ===== EMAIL HTML =====
 function buildEmailHtml(params: {
   customer: Customer;
   salesperson: Salesperson;
@@ -190,9 +270,11 @@ function buildEmailHtml(params: {
   const { customer, salesperson, monthlyRows, oneTimeRows, vatRate } = params;
 
   const s = {
-    body: "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
+    body:
+      "margin:0;padding:0;background:#f6f7fb;font-family:Arial,Helvetica,sans-serif;color:#111",
     container: "max-width:720px;margin:0 auto;padding:24px",
-    card: "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
+    card:
+      "background:#ffffff;border-radius:14px;padding:0;border:1px solid #e9e9ef;overflow:hidden",
     header: `background:${BRAND.headerBg};color:${BRAND.headerFg};padding:16px 20px;`,
     headerTable: "width:100%;border-collapse:collapse",
     logo: "display:block;height:64px;object-fit:contain",
@@ -204,15 +286,19 @@ function buildEmailHtml(params: {
     pSmall: "margin:0 0 8px 0;font-size:12px;color:#666;line-height:1.5",
     th: "text-align:left;padding:10px 8px;font-size:12px;border-bottom:1px solid #eee;color:#555;white-space:nowrap",
     td: "padding:10px 8px;font-size:13px;border-bottom:1px solid #f1f1f5;vertical-align:top",
-    totalLabel: "padding:8px 8px;font-size:13px;white-space:nowrap;width:260px;text-align:right",
+    totalLabel:
+      "padding:8px 8px;font-size:13px;white-space:nowrap;width:260px;text-align:right",
     totalValue: "padding:8px 8px;font-size:13px",
-    priceList: "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px",
+    priceList:
+      "display:inline-block;text-decoration:line-through;opacity:.6;margin-right:8px",
     priceOffer: `display:inline-block;color:${BRAND.primary};font-weight:bold`,
     badge: `display:inline-block;background:${BRAND.primary};color:#fff;border-radius:999px;padding:2px 8px;font-size:11px;margin-left:8px;vertical-align:middle`,
     btn: `display:inline-block;background:${BRAND.primary};color:${BRAND.headerFg};text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold`,
-    btnGhost: "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
+    btnGhost:
+      "display:inline-block;background:#111;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold",
     hrOrange: `height:3px;background:${BRAND.primary};border:none;margin:16px 0`,
-    addressBox: "background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;",
+    addressBox:
+      "background:#f2f3f7;border-radius:6px;padding:10px 14px;margin-top:12px;margin-bottom:18px;line-height:1.55;font-size:13px;color:#333;",
   };
 
   function rowsHtml(rows: BuiltRow[]) {
@@ -311,8 +397,16 @@ function buildEmailHtml(params: {
       <div style="${s.accent}"></div>
       <div style="${s.inner}">
         <h2 style="${s.h1}">Ihr individuelles Angebot</h2>
-        ${customer.company ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>` : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`}
-        ${addressCustomer ? `<div style="${s.addressBox}">${escapeHtml(addressCustomer).replace(/\n/g, "<br>")}</div>` : ""}
+        ${
+          customer.company
+            ? `<p style="${s.p}"><strong>${escapeHtml(customer.company)}</strong></p>`
+            : `<p style="${s.p}"><strong>Firma unbekannt</strong></p>`
+        }
+        ${
+          addressCustomer
+            ? `<div style="${s.addressBox}">${escapeHtml(addressCustomer).replace(/\n/g, "<br>")}</div>`
+            : ""
+        }
         <p style="${s.p}">${escapeHtml(greetingLine(customer))}</p>
 
         <p style="${s.p}">vielen Dank für Ihr Interesse an xVoice UC. Unsere cloudbasierte Kommunikationslösung verbindet moderne Telefonie mit Microsoft Teams und führenden CRM-Systemen – sicher, skalierbar und in deutschen Rechenzentren betrieben.</p>
@@ -320,6 +414,7 @@ function buildEmailHtml(params: {
         <p style="${s.p}">Gerne bespreche ich die nächsten Schritte gemeinsam mit Ihnen – telefonisch oder per Teams-Call, ganz wie es Ihnen am besten passt.</p>
         <p style="${s.p}">Ich freue mich auf Ihre Rückmeldung und auf die Möglichkeit, Sie bald als neuen xVoice UC Kunden zu begrüßen.</p>
 
+        <!-- MONATLICHE POSITIONEN -->
         <h3 style="${s.h3};margin-top:8px">Monatliche Positionen</h3>
         <table width="100%" style="border-collapse:collapse;margin-top:6px">
           <thead>
@@ -336,6 +431,7 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
+        <!-- EINMALIGE POSITIONEN -->
         ${
           oneTimeRows.length > 0
             ? `
@@ -358,11 +454,18 @@ function buildEmailHtml(params: {
             : ""
         }
 
-        <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">
-          <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}" style="${s.btn}">Jetzt verbindlich bestellen</a>
-          <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
+        <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
+          <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}"
+             style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
+             Jetzt verbindlich bestellen
+          </a>
+          <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener"
+             style="${s.btnGhost}">
+             Rückfrage zum Angebot
+          </a>
         </div>
 
+        <!-- Vertriebsgruß -->
         <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <p style="${s.p}">Mit freundlichen Grüßen</p>
           ${salesperson.name ? `<p style="${s.p}"><strong>${escapeHtml(salesperson.name)}</strong></p>` : ""}
@@ -372,8 +475,25 @@ function buildEmailHtml(params: {
 
         <hr style="${s.hrOrange}" />
 
+        <!-- CEO-Block -->
+        <div style="margin-top:0;border-top:1px solid #eee;padding-top:14px;">
+          <table width="100%" style="border-collapse:collapse">
+            <tr>
+              <td style="width:120px;vertical-align:top">
+                <img src="https://onecdn.io/media/10febcbf-6c57-4af7-a0c4-810500fea565/full" alt="Sebastian Brandl" style="width:100%;max-width:120px;border:1px solid #eee;border-radius:0;display:block" />
+              </td>
+              <td style="vertical-align:top;padding-left:20px">
+                <p style="${s.p}"><em>„Unser Ziel ist es, Kommunikation für Ihr Team spürbar einfacher zu machen – ohne Kompromisse bei Sicherheit und Service. Gerne begleiten wir Sie von der Planung bis zum Go-Live.“</em></p>
+                <img src="https://onecdn.io/media/b96f734e-465e-4679-ac1b-1c093a629530/full" alt="Unterschrift Sebastian Brandl" style="width:160px;margin-top:8px;display:block" />
+                <p style="${s.p}"><strong>Sebastian Brandl</strong> · Geschäftsführer</p>
+              </td>
+            </tr>
+          </table>
+        </div>
+
         <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
 
+        <!-- Firmenfooter -->
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.pSmall}">${COMPANY.legal}</p>
           <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
@@ -388,7 +508,7 @@ function buildEmailHtml(params: {
 </html>`;
 }
 
-// ===== SMALL UI PARTS =====
+// ===== UI HELFER =====
 function Header() {
   return (
     <div
@@ -396,7 +516,11 @@ function Header() {
       style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
     >
       <div className="flex items-center gap-6">
-        <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-32 w-32 object-contain" />
+        <img
+          src={BRAND.logoUrl}
+          alt="xVoice Logo"
+          className="h-32 w-32 object-contain"
+        />
         <div>
           <div className="text-sm opacity-80" style={{ color: BRAND.headerFg }}>
             Angebots- und Bestell-Konfigurator
@@ -466,7 +590,9 @@ function ProductRow({
         {formatMoney(item.price)}
         {pctCapped > 0 && (
           <div className="text-xs">
-            <span className="line-through opacity-60 mr-1">{formatMoney(item.price)}</span>
+            <span className="line-through opacity-60 mr-1">
+              {formatMoney(item.price)}
+            </span>
             <span className="font-semibold" style={{ color: BRAND.primary }}>
               {formatMoney(unitAfter)}
             </span>
@@ -480,6 +606,7 @@ function ProductRow({
         )}
       </div>
 
+      {/* Menge & Rabatt identische Breite */}
       <div className="grid grid-cols-2 gap-3 items-center">
         <div className="flex items-center gap-2">
           <Input
@@ -487,11 +614,15 @@ function ProductRow({
             min={0}
             step={1}
             value={qty}
-            onChange={(e) => onQty(Math.max(0, Math.floor(Number(e.target.value || 0))))}
+            onChange={(e) =>
+              onQty(Math.max(0, Math.floor(Number(e.target.value || 0))))
+            }
             className="w-28"
             disabled={!!readOnly}
           />
-          <span className="text-xs text-muted-foreground">{item.unit || ""}</span>
+          <span className="text-xs text-muted-foreground">
+            {item.unit || ""}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <Input
@@ -500,7 +631,9 @@ function ProductRow({
             max={cap}
             step={0.5}
             value={pctCapped}
-            onChange={(e) => onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))}
+            onChange={(e) =>
+              onDiscountPct(Math.max(0, Math.min(cap, Number(e.target.value || 0))))
+            }
             className="w-28"
             disabled={cap === 0}
           />
@@ -513,7 +646,9 @@ function ProductRow({
       </div>
 
       {helper ? (
-        <div className="col-span-4 -mt-2 text-xs text-muted-foreground">{helper}</div>
+        <div className="col-span-4 -mt-2 text-xs text-muted-foreground">
+          {helper}
+        </div>
       ) : null}
     </div>
   );
@@ -534,10 +669,22 @@ function Totals({
   const vat = offerSubtotal * vatRate;
   const gross = offerSubtotal + vat;
 
-  const Row = ({ label, value, strong }: { label: string; value: string; strong?: boolean }) => (
+  const Row = ({
+    label,
+    value,
+    strong,
+  }: {
+    label: string;
+    value: string;
+    strong?: boolean;
+  }) => (
     <div className="grid grid-cols-[1fr_auto] items-baseline gap-x-8">
       <span className={strong ? "font-semibold" : undefined}>{label}</span>
-      <span className={"tabular-nums text-right " + (strong ? "font-semibold" : "")}>
+      <span
+        className={
+          "tabular-nums text-right " + (strong ? "font-semibold" : "")
+        }
+      >
         {value}
       </span>
     </div>
@@ -547,8 +694,13 @@ function Totals({
     <div className="space-y-1 text-sm">
       <div className="text-sm font-medium mb-1">{title}</div>
       <Row label="Listen-Zwischensumme (netto)" value={formatMoney(listSubtotal)} />
-      {discount > 0 && <Row label="Rabatt gesamt" value={"−" + formatMoney(discount)} />}
-      <Row label={discount > 0 ? "Zwischensumme nach Rabatt" : "Zwischensumme (netto)"} value={formatMoney(offerSubtotal)} />
+      {discount > 0 && (
+        <Row label="Rabatt gesamt" value={"−" + formatMoney(discount)} />
+      )}
+      <Row
+        label={discount > 0 ? "Zwischensumme nach Rabatt" : "Zwischensumme (netto)"}
+        value={formatMoney(offerSubtotal)}
+      />
       <Row label="zzgl. USt. (19%)" value={formatMoney(vat)} />
       <Row label="Bruttosumme" value={formatMoney(gross)} strong />
     </div>
@@ -557,10 +709,13 @@ function Totals({
 
 // ===== PAGE =====
 export default function Page() {
+  // dynamische Kataloge (Hardware/Setup-Tiers können aus CSV kommen)
   const [hardwareCatalog, setHardwareCatalog] = useState<CatalogItem[]>(HARDWARE_FALLBACK);
   const [setupTiers, setSetupTiers] = useState<SetupTier[]>(SETUP_TIERS_FALLBACK);
 
+  // CSV laden (optional)
   useEffect(() => {
+    // Hardware
     fetch("/hardware.csv", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
@@ -578,20 +733,34 @@ export default function Page() {
         };
         const list: CatalogItem[] = [];
         for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          const sku = r[idx.sku] || "";
-          const name = r[idx.name] || "";
-          const price = parseFloat((r[idx.price] || "").replace(",", "."));
+          const r0 = rows[i];
+          const sku = r0[idx.sku] || "";
+          const name = r0[idx.name] || "";
+          const price = parseFloat((r0[idx.price] || "").replace(",", "."));
           if (!sku || !name || !isFinite(price)) continue;
-          const unit = idx.unit >= 0 ? r[idx.unit] || undefined : undefined;
-          const desc = idx.desc >= 0 ? r[idx.desc] || undefined : undefined;
-          const maxDiscountPct = idx.maxDiscountPct >= 0 ? parseFloat((r[idx.maxDiscountPct] || "10").replace(",", ".")) : HARDWARE_MAX_DEFAULT;
-          list.push({ sku, name, price, unit, desc, billing: "one-time", maxDiscountPct: isFinite(maxDiscountPct) ? maxDiscountPct : HARDWARE_MAX_DEFAULT });
+          const unit = idx.unit >= 0 ? r0[idx.unit] || undefined : undefined;
+          const desc = idx.desc >= 0 ? r0[idx.desc] || undefined : undefined;
+          const maxDiscountPct =
+            idx.maxDiscountPct >= 0
+              ? parseFloat((r0[idx.maxDiscountPct] || "10").replace(",", "."))
+              : HARDWARE_MAX_DEFAULT;
+          list.push({
+            sku,
+            name,
+            price,
+            unit,
+            desc,
+            billing: "one-time",
+            maxDiscountPct: isFinite(maxDiscountPct)
+              ? maxDiscountPct
+              : HARDWARE_MAX_DEFAULT,
+          });
         }
         if (list.length > 0) setHardwareCatalog(list);
       })
       .catch(() => {});
 
+    // Setup-Tiers
     fetch("/setup_tiers.csv", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
@@ -608,14 +777,24 @@ export default function Page() {
         };
         const tiers: SetupTier[] = [];
         for (let i = 1; i < rows.length; i++) {
-          const r = rows[i];
-          const minLicenses = parseInt((r[idx.minLicenses] || "0").trim(), 10);
-          const maxLicensesRaw = (r[idx.maxLicenses] || "").trim();
-          const maxLicenses = maxLicensesRaw.toLowerCase() === "inf" || maxLicensesRaw === "" ? Number.POSITIVE_INFINITY : parseInt(maxLicensesRaw, 10);
-          const sku = r[idx.sku] || "";
-          const name = r[idx.name] || "";
-          const price = parseFloat((r[idx.price] || "").replace(",", "."));
-          if (!sku || !name || !isFinite(price) || !Number.isFinite(minLicenses) || !Number.isFinite(maxLicenses)) continue;
+          const r0 = rows[i];
+          const minLicenses = parseInt((r0[idx.minLicenses] || "0").trim(), 10);
+          const maxLicensesRaw = (r0[idx.maxLicenses] || "").trim();
+          const maxLicenses =
+            maxLicensesRaw.toLowerCase() === "inf" || maxLicensesRaw === ""
+              ? Number.POSITIVE_INFINITY
+              : parseInt(maxLicensesRaw, 10);
+          const sku = r0[idx.sku] || "";
+          const name = r0[idx.name] || "";
+          const price = parseFloat((r0[idx.price] || "").replace(",", "."));
+          if (
+            !sku ||
+            !name ||
+            !isFinite(price) ||
+            !Number.isFinite(minLicenses) ||
+            !Number.isFinite(maxLicenses)
+          )
+            continue;
           tiers.push({ minLicenses, maxLicenses, sku, name, price });
         }
         if (tiers.length > 0) setSetupTiers(tiers);
@@ -623,11 +802,17 @@ export default function Page() {
       .catch(() => {});
   }, []);
 
+  // Mengen & Rabatte
   const ALL = [...MONTHLY, ...hardwareCatalog];
-  const [qty, setQty] = useState<Record<string, number>>(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
-  const [discPct, setDiscPct] = useState<Record<string, number>>(Object.fromEntries(ALL.map((p) => [p.sku, 0])));
+  const [qty, setQty] = useState<Record<string, number>>(
+    Object.fromEntries(ALL.map((p) => [p.sku, 0]))
+  );
+  const [discPct, setDiscPct] = useState<Record<string, number>>(
+    Object.fromEntries(ALL.map((p) => [p.sku, 0]))
+  );
   const [vatRate] = useState(0.19);
 
+  // Kunde / Vertrieb
   const [customer, setCustomer] = useState<Customer>({
     salutation: "",
     company: "",
@@ -639,12 +824,21 @@ export default function Page() {
     city: "",
     notes: "",
   });
-  const [salesperson, setSalesperson] = useState<Salesperson>({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
+  const [salesperson, setSalesperson] = useState<Salesperson>({
+    name: "",
+    email: "vertrieb@xvoice-uc.de",
+    phone: "",
+  });
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
 
-  const serviceAutoQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
+  // XVPS automatisch
+  const serviceAutoQty = useMemo(
+    () => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0),
+    [qty]
+  );
 
+  // Bei dynamischer Hardware qty/discount ergänzen
   useEffect(() => {
     setQty((prev) => {
       const next = { ...prev };
@@ -663,7 +857,8 @@ export default function Page() {
     return found?.maxDiscountPct ?? 0;
   }
 
-  const monthlyRows = useMemo(() => {
+  // Monatspositionen
+  const monthlyRows: BuiltRow[] = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of MONTHLY) {
       const isXVPS = p.sku === "XVPS";
@@ -674,7 +869,7 @@ export default function Page() {
       const cap = capForSku(p.sku);
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
-      const offerUnit = p.price * (pct ? (1 - pct / 100) : 1);
+      const offerUnit = p.price * (pct ? 1 - pct / 100 : 1);
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
@@ -694,13 +889,22 @@ export default function Page() {
     return rows;
   }, [qty, discPct, serviceAutoQty]);
 
+  // Setup aus Tiers
   function pickSetupTier(totalCoreSeats: number): SetupTier | null {
     if (!Number.isFinite(totalCoreSeats) || totalCoreSeats <= 0) return null;
-    return setupTiers.find(t => totalCoreSeats >= t.minLicenses && totalCoreSeats <= t.maxLicenses) ?? null;
+    return (
+      setupTiers.find(
+        (t) => totalCoreSeats >= t.minLicenses && totalCoreSeats <= t.maxLicenses
+      ) ?? null
+    );
   }
-  const selectedSetup = useMemo(() => pickSetupTier(serviceAutoQty), [serviceAutoQty, setupTiers]);
+  const selectedSetup = useMemo(
+    () => pickSetupTier(serviceAutoQty),
+    [serviceAutoQty, setupTiers]
+  );
 
-  const hardwareRows = useMemo(() => {
+  // Hardware
+  const hardwareRows: BuiltRow[] = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of hardwareCatalog) {
       const q = qty[p.sku] || 0;
@@ -708,7 +912,7 @@ export default function Page() {
       const cap = capForSku(p.sku);
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
-      const offerUnit = p.price * (pct ? (1 - pct / 100) : 1);
+      const offerUnit = p.price * (pct ? 1 - pct / 100 : 1);
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
@@ -728,13 +932,15 @@ export default function Page() {
     return rows;
   }, [qty, discPct, hardwareCatalog]);
 
-  const oneTimeRows = useMemo(() => {
+  // Einmalige Positionen inkl. Setup
+  const oneTimeRows: BuiltRow[] = useMemo(() => {
     const rows: BuiltRow[] = [];
     if (selectedSetup) {
       rows.push({
         sku: selectedSetup.sku,
         name: selectedSetup.name,
-        desc: "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
+        desc:
+          "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
         quantity: 1,
         listUnit: selectedSetup.price,
         offerUnit: selectedSetup.price,
@@ -747,6 +953,7 @@ export default function Page() {
     return rows;
   }, [hardwareRows, selectedSetup]);
 
+  // HTML bauen
   const offerHtml = useMemo(
     () =>
       buildEmailHtml({
@@ -759,22 +966,29 @@ export default function Page() {
     [customer, salesperson, monthlyRows, oneTimeRows, vatRate]
   );
 
+  // UX
   const [sending, setSending] = useState(false);
   const [sendOk, setSendOk] = useState(false);
   const [error, setError] = useState("");
   const [copyOk, setCopyOk] = useState(false);
   const [copyError, setCopyError] = useState("");
 
+  // Preview / Download / Copy
   function openPreviewNewTab() {
     try {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }, 5000);
       if (w) return;
     } catch {}
     try {
-      const dataUrl = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
+      const dataUrl =
+        "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       window.open(dataUrl, "_blank", "noopener");
     } catch (err) {
       setError("Vorschau blockiert: " + String(err));
@@ -792,12 +1006,17 @@ export default function Page() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 0);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }, 0);
       return;
     } catch {}
     try {
       const a = document.createElement("a");
-      a.href = "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
+      a.href =
+        "data:text/html;charset=utf-8," + encodeURIComponent(offerHtml);
       a.download = `xvoice_angebot_${todayIso()}.html`;
       a.target = "_blank";
       a.rel = "noopener";
@@ -814,7 +1033,7 @@ export default function Page() {
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
-        return { ok: true, via: "clipboard" };
+        return { ok: true, via: "clipboard" as const };
       }
     } catch {}
     try {
@@ -828,9 +1047,9 @@ export default function Page() {
       ta.select();
       const ok = document.execCommand("copy");
       document.body.removeChild(ta);
-      return { ok: !!ok, via: "execCommand" };
+      return { ok: !!ok, via: "execCommand" as const };
     } catch (error) {
-      return { ok: false, via: "blocked", error };
+      return { ok: false, via: "blocked" as const, error };
     }
   }
 
@@ -865,58 +1084,72 @@ export default function Page() {
     setError("");
     setSendOk(false);
     try {
+      // Totals (für Logging/optional)
       const mList = monthlyRows.reduce((a, r) => a + r.listTotal, 0);
       const mOffer = monthlyRows.reduce((a, r) => a + r.offerTotal, 0);
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
 
-      // Token generieren (für Bestell-Button im HTML)
-const offerId = "XVO-" + Date.now();
-const token = signOrderPayload({
-  offerId,
-  customer: {
-    company: customer.company,
-    contact: customer.contact,
-    email: customer.email,
-    phone: customer.phone,
-  },
-  salesperson,
-  monthlyRows: monthlyRows.map(r => ({
-    sku: r.sku,
-    name: r.name,
-    quantity: r.quantity,
-    listUnit: r.listUnit,
-    offerUnit: r.offerUnit,
-    listTotal: r.listTotal,
-    offerTotal: r.offerTotal,
-  })),
-  oneTimeRows: oneTimeRows.map(r => ({
-    sku: r.sku,
-    name: r.name,
-    quantity: r.quantity,
-    listUnit: r.listUnit,
-    offerUnit: r.offerUnit,
-    listTotal: r.listTotal,
-    offerTotal: r.offerTotal,
-  })),
-  vatRate,
-  createdAt: Date.now(),
-});
+      // Token generieren – NICHT salesperson mitschicken
+      const offerId = "XVO-" + Date.now();
+      const token = signOrderPayload({
+        offerId,
+        vatRate,
+        createdAt: Date.now(),
+        customer: {
+          company: customer.company,
+          contact: customer.contact,
+          email: customer.email,
+          phone: customer.phone,
+        },
+        monthlyRows: monthlyRows.map((r) => ({
+          sku: r.sku,
+          name: r.name,
+          quantity: r.quantity,
+          listUnit: r.listUnit,
+          offerUnit: r.offerUnit,
+          listTotal: r.listTotal,
+          offerTotal: r.offerTotal,
+        })),
+        oneTimeRows: oneTimeRows.map((r) => ({
+          sku: r.sku,
+          name: r.name,
+          quantity: r.quantity,
+          listUnit: r.listUnit,
+          offerUnit: r.offerUnit,
+          listTotal: r.listTotal,
+          offerTotal: r.offerTotal,
+        })),
+      } as any); // falls dein d.ts strenger ist
 
       // Token im HTML einsetzen
-      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+      const htmlWithToken = offerHtml.replaceAll(
+        "{{OFFER_TOKEN}}",
+        encodeURIComponent(token)
+      );
 
+      // Mail mit HTML inkl. Button-Token schicken
       await postJson(EMAIL_ENDPOINT, {
         meta: { subject },
-        offerHtml: htmlWithToken, // <<< wichtig: HTML MIT Token versenden
+        offerHtml: htmlWithToken, // wichtig!
         customer,
         monthlyRows,
         oneTimeRows,
         totals: {
-          monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
-          oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
+          monthly: {
+            netList: mList,
+            netOffer: mOffer,
+            vat: mOffer * vatRate,
+            gross: mOffer * (1 + vatRate),
+          },
+          oneTime: {
+            netList: oList,
+            netOffer: oOffer,
+            vat: oOffer * vatRate,
+            gross: oOffer * (1 + vatRate),
+          },
         },
-        salesperson,
+        salesperson, // nur für Signatur in der Mail
         recipients: [customer.email, salesEmail].filter(Boolean),
       });
       setSendOk(true);
@@ -934,7 +1167,7 @@ const token = signOrderPayload({
     try {
       await postJson(ORDER_ENDPOINT, {
         orderIntent: true,
-        offerHtml,
+        offerHtml, // hier ist Token nicht zwingend nötig – Button ist für E-Mail gedacht
         customer,
         monthlyRows,
         oneTimeRows,
@@ -948,11 +1181,25 @@ const token = signOrderPayload({
   }
 
   function resetAll() {
-    const baseQty = Object.fromEntries([...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0]));
-    const baseDisc = Object.fromEntries([...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0]));
+    const baseQty = Object.fromEntries(
+      [...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0])
+    );
+    const baseDisc = Object.fromEntries(
+      [...MONTHLY, ...hardwareCatalog].map((p) => [p.sku, 0])
+    );
     setQty(baseQty);
     setDiscPct(baseDisc);
-    setCustomer({ salutation: "", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+    setCustomer({
+      salutation: "",
+      company: "",
+      contact: "",
+      email: "",
+      phone: "",
+      street: "",
+      zip: "",
+      city: "",
+      notes: "",
+    });
     setSalesperson({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
     setSendOk(false);
     setError("");
@@ -960,11 +1207,16 @@ const token = signOrderPayload({
     setCopyError("");
   }
 
+  // ===== UI =====
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
       <Header />
 
-      <Section title="1. Lizenzen (monatlich)" action={<div className="text-xs opacity-70">USt. fest: 19%</div>}>
+      {/* 1. Lizenzen (monatlich) */}
+      <Section
+        title="1. Lizenzen (monatlich)"
+        action={<div className="text-xs opacity-70">USt. fest: 19%</div>}
+      >
         <div className="grid grid-cols-1 gap-2">
           <div className="grid grid-cols-[minmax(260px,1fr)_120px_260px_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
             <div>Produkt</div>
@@ -976,10 +1228,22 @@ const token = signOrderPayload({
           {MONTHLY.map((item) => {
             const isService = item.sku === "XVPS";
             const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
-            const onQ = isService ? () => {} : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+            const onQ = isService
+              ? () => {}
+              : (v: number) =>
+                  setQty((prev) => ({
+                    ...prev,
+                    [item.sku]: Math.max(0, Math.floor(v)),
+                  }));
             const cap = item.maxDiscountPct ?? 0;
-            const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
-            const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
+            const onD = (v: number) =>
+              setDiscPct((prev) => ({
+                ...prev,
+                [item.sku]: Math.max(0, Math.min(cap, v)),
+              }));
+            const helper = isService
+              ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)"
+              : undefined;
 
             return (
               <ProductRow
@@ -998,11 +1262,15 @@ const token = signOrderPayload({
         </div>
 
         <div className="mt-4 flex items-start justify-between gap-6">
-          <div className="text-xs opacity-80">Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.</div>
+          <div className="text-xs opacity-80">
+            Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr.
+            Änderungen vorbehalten.
+          </div>
           <Totals title="Monatliche Summe" rows={monthlyRows} vatRate={vatRate} />
         </div>
       </Section>
 
+      {/* 2. Hardware (einmalig) */}
       <Section title="2. Hardware (einmalig)">
         <div className="grid grid-cols-1 gap-2">
           <div className="grid grid-cols-[minmax(260px,1fr)_120px_260px_140px] gap-4 text-xs uppercase text-muted-foreground pb-2 border-b">
@@ -1014,9 +1282,17 @@ const token = signOrderPayload({
 
         {hardwareCatalog.map((item) => {
           const q = qty[item.sku] || 0;
-          const onQ = (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+          const onQ = (v: number) =>
+            setQty((prev) => ({
+              ...prev,
+              [item.sku]: Math.max(0, Math.floor(v)),
+            }));
           const cap = item.maxDiscountPct ?? HARDWARE_MAX_DEFAULT;
-          const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
+          const onD = (v: number) =>
+            setDiscPct((prev) => ({
+              ...prev,
+              [item.sku]: Math.max(0, Math.min(cap, v)),
+            }));
 
           return (
             <ProductRow
@@ -1034,22 +1310,44 @@ const token = signOrderPayload({
         </div>
 
         <div className="mt-3 text-xs text-muted-foreground">
-          Die Installations- & Konfigurationspauschale wird automatisch anhand der Anzahl der Kernlizenzen (XVPR, XVDV, XVMO) ermittelt.
+          Die Installations- & Konfigurationspauschale wird automatisch anhand
+          der Anzahl der Kernlizenzen (XVPR, XVDV, XVMO) ermittelt.
           {(() => {
-            const sel = setupTiers && setupTiers.length > 0 ? setupTiers.find(t => serviceAutoQty >= t.minLicenses && serviceAutoQty <= t.maxLicenses) : null;
-            return sel ? ` Aktuell zugeordnet: ${sel.name} (${formatMoney(sel.price)}).` : " Wird angezeigt, sobald mindestens eine Kernlizenz gewählt wurde.";
+            const sel =
+              setupTiers && setupTiers.length > 0
+                ? setupTiers.find(
+                    (t) =>
+                      serviceAutoQty >= t.minLicenses &&
+                      serviceAutoQty <= t.maxLicenses
+                  )
+                : null;
+            return sel
+              ? ` Aktuell zugeordnet: ${sel.name} (${formatMoney(sel.price)}).`
+              : " Wird angezeigt, sobald mindestens eine Kernlizenz gewählt wurde.";
           })()}
         </div>
 
         <div className="mt-4 flex items-start justify-between gap-6">
-          <div className="text-xs opacity-80">Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr. Änderungen vorbehalten.</div>
+          <div className="text-xs opacity-80">
+            Alle Preise netto zzgl. der gültigen USt. Angaben ohne Gewähr.
+            Änderungen vorbehalten.
+          </div>
           <Totals
             title="Einmalige Summe"
             rows={(() => {
               const rows: { listTotal: number; offerTotal: number }[] = [];
-              const sel = setupTiers.find(t => serviceAutoQty >= t.minLicenses && serviceAutoQty <= t.maxLicenses);
-              if (sel && serviceAutoQty > 0) rows.push({ listTotal: sel.price, offerTotal: sel.price });
-              for (const hr of hardwareRows) rows.push({ listTotal: hr.listTotal, offerTotal: hr.offerTotal });
+              const sel = setupTiers.find(
+                (t) =>
+                  serviceAutoQty >= t.minLicenses &&
+                  serviceAutoQty <= t.maxLicenses
+              );
+              if (sel && serviceAutoQty > 0)
+                rows.push({ listTotal: sel.price, offerTotal: sel.price });
+              for (const hr of hardwareRows)
+                rows.push({
+                  listTotal: hr.listTotal,
+                  offerTotal: hr.offerTotal,
+                });
               return rows;
             })()}
             vatRate={vatRate}
@@ -1057,6 +1355,7 @@ const token = signOrderPayload({
         </div>
       </Section>
 
+      {/* 3. Kundendaten & Versand */}
       <Section title="Kundendaten & Versand">
         <div className="grid md:grid-cols-3 gap-4">
           <div className="flex items-center gap-2">
@@ -1064,40 +1363,122 @@ const token = signOrderPayload({
             <select
               className="border rounded-md h-10 px-3 text-sm"
               value={customer.salutation}
-              onChange={(e) => setCustomer({ ...customer, salutation: e.target.value as Customer["salutation"] })}
+              onChange={(e) =>
+                setCustomer({
+                  ...customer,
+                  salutation: e.target.value as Customer["salutation"],
+                })
+              }
             >
               <option value="">–</option>
               <option value="Herr">Herr</option>
               <option value="Frau">Frau</option>
             </select>
           </div>
-          <Input placeholder="Ansprechpartner" value={customer.contact} onChange={(e) => setCustomer({ ...customer, contact: e.target.value })} />
-          <Input placeholder="Firma" value={customer.company} onChange={(e) => setCustomer({ ...customer, company: e.target.value })} />
-          <Input placeholder="E-Mail Kunde" type="email" value={customer.email} onChange={(e) => setCustomer({ ...customer, email: e.target.value })} />
-          <Input placeholder="Telefon" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} />
-          <Input placeholder="Straße & Nr." value={customer.street} onChange={(e) => setCustomer({ ...customer, street: e.target.value })} />
+          <Input
+            placeholder="Ansprechpartner"
+            value={customer.contact}
+            onChange={(e) =>
+              setCustomer({ ...customer, contact: e.target.value })
+            }
+          />
+          <Input
+            placeholder="Firma"
+            value={customer.company}
+            onChange={(e) =>
+              setCustomer({ ...customer, company: e.target.value })
+            }
+          />
+          <Input
+            placeholder="E-Mail Kunde"
+            type="email"
+            value={customer.email}
+            onChange={(e) =>
+              setCustomer({ ...customer, email: e.target.value })
+            }
+          />
+          <Input
+            placeholder="Telefon"
+            value={customer.phone}
+            onChange={(e) =>
+              setCustomer({ ...customer, phone: e.target.value })
+            }
+          />
+          <Input
+            placeholder="Straße & Nr."
+            value={customer.street}
+            onChange={(e) =>
+              setCustomer({ ...customer, street: e.target.value })
+            }
+          />
           <div className="grid grid-cols-2 gap-2">
-            <Input placeholder="PLZ" value={customer.zip} onChange={(e) => setCustomer({ ...customer, zip: e.target.value })} />
-            <Input placeholder="Ort" value={customer.city} onChange={(e) => setCustomer({ ...customer, city: e.target.value })} />
+            <Input
+              placeholder="PLZ"
+              value={customer.zip}
+              onChange={(e) =>
+                setCustomer({ ...customer, zip: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Ort"
+              value={customer.city}
+              onChange={(e) =>
+                setCustomer({ ...customer, city: e.target.value })
+              }
+            />
           </div>
           <div className="md:col-span-3">
-            <Textarea placeholder="Interne Notizen (optional)" value={customer.notes} onChange={(e) => setCustomer({ ...customer, notes: e.target.value })} />
+            <Textarea
+              placeholder="Interne Notizen (optional)"
+              value={customer.notes}
+              onChange={(e) =>
+                setCustomer({ ...customer, notes: e.target.value })
+              }
+            />
           </div>
         </div>
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Input placeholder="Name Vertriebsmitarbeiter" value={salesperson.name} onChange={(e) => setSalesperson({ ...salesperson, name: e.target.value })} />
-            <Input placeholder="E-Mail Vertrieb" type="email" value={salesperson.email} onChange={(e) => setSalesperson({ ...salesperson, email: e.target.value })} />
-            <Input placeholder="Telefon Vertrieb" value={salesperson.phone} onChange={(e) => setSalesperson({ ...salesperson, phone: e.target.value })} />
+            <Input
+              placeholder="Name Vertriebsmitarbeiter"
+              value={salesperson.name}
+              onChange={(e) =>
+                setSalesperson({ ...salesperson, name: e.target.value })
+              }
+            />
+            <Input
+              placeholder="E-Mail Vertrieb"
+              type="email"
+              value={salesperson.email}
+              onChange={(e) =>
+                setSalesperson({ ...salesperson, email: e.target.value })
+              }
+            />
+            <Input
+              placeholder="Telefon Vertrieb"
+              value={salesperson.phone}
+              onChange={(e) =>
+                setSalesperson({ ...salesperson, phone: e.target.value })
+              }
+            />
           </div>
-          <Input placeholder="Betreff" value={subject} onChange={(e) => setSubject(e.target.value)} />
+          <Input
+            placeholder="Betreff"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          />
         </div>
 
         <div className="grid md:grid-cols-3 gap-4 mt-4">
           <div className="md:col-span-2 flex items-center gap-2">
             <Label className="text-sm">Vertrieb E-Mail (Kopie)</Label>
-            <Input placeholder="vertrieb@xvoice-uc.de" type="email" value={salesEmail} onChange={(e) => setSalesEmail(e.target.value)} />
+            <Input
+              placeholder="vertrieb@xvoice-uc.de"
+              type="email"
+              value={salesEmail}
+              onChange={(e) => setSalesEmail(e.target.value)}
+            />
           </div>
         </div>
 
@@ -1112,7 +1493,9 @@ const token = signOrderPayload({
               const r = await safeCopyToClipboard(offerHtml);
               if (r.ok) setCopyOk(true);
               else {
-                setCopyError("Kopieren blockiert. HTML wird stattdessen heruntergeladen.");
+                setCopyError(
+                  "Kopieren blockiert. HTML wird stattdessen heruntergeladen."
+                );
                 handleDownloadHtml();
               }
             }}
@@ -1124,7 +1507,12 @@ const token = signOrderPayload({
           <Button onClick={handleDownloadHtml} className="gap-2" variant="outline">
             <Download size={16} /> HTML herunterladen
           </Button>
-          <Button onClick={handleSendEmail} disabled={sending} className="gap-2" style={{ backgroundColor: BRAND.primary }}>
+          <Button
+            onClick={handleSendEmail}
+            disabled={sending}
+            className="gap-2"
+            style={{ backgroundColor: BRAND.primary }}
+          >
             <Mail size={16} /> Angebot per Mail senden
           </Button>
           <Button onClick={handleOrderNow} disabled={sending} className="gap-2" variant="outline">
@@ -1135,14 +1523,24 @@ const token = signOrderPayload({
           </Button>
         </div>
 
-        {sendOk && <div className="mt-3 flex items-center gap-2 text-green-700 text-sm"><Check size={16} /> Erfolgreich übermittelt.</div>}
+        {sendOk && (
+          <div className="mt-3 flex items-center gap-2 text-green-700 text-sm">
+            <Check size={16} /> Erfolgreich übermittelt.
+          </div>
+        )}
         {!!error && <div className="mt-3 text-red-600 text-sm">Fehler: {error}</div>}
-        {copyOk && <div className="mt-3 text-green-700 text-sm">HTML in die Zwischenablage kopiert.</div>}
+        {copyOk && (
+          <div className="mt-3 text-green-700 text-sm">
+            HTML in die Zwischenablage kopiert.
+          </div>
+        )}
         {!!copyError && <div className="mt-3 text-amber-600 text-sm">{copyError}</div>}
       </Section>
 
+      {/* Live-Zusammenfassung */}
       <Section title="Live-Zusammenfassung">
         <div className="grid md:grid-cols-2 gap-6">
+          {/* Monatlich */}
           <div>
             <div className="text-sm font-medium mb-2">Monatliche Positionen</div>
             {monthlyRows.length === 0 ? (
@@ -1151,7 +1549,9 @@ const token = signOrderPayload({
               <div className="space-y-2">
                 {monthlyRows.map((li) => (
                   <div key={`m-${li.sku}`} className="flex justify-between text-sm">
-                    <div>{li.quantity}× {li.name} ({li.sku})</div>
+                    <div>
+                      {li.quantity}× {li.name} ({li.sku})
+                    </div>
                     <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
                   </div>
                 ))}
@@ -1161,6 +1561,7 @@ const token = signOrderPayload({
               </div>
             )}
           </div>
+          {/* Einmalig */}
           <div>
             <div className="text-sm font-medium mb-2">Einmalige Positionen</div>
             {oneTimeRows.length === 0 ? (
@@ -1169,7 +1570,9 @@ const token = signOrderPayload({
               <div className="space-y-2">
                 {oneTimeRows.map((li) => (
                   <div key={`o-${li.sku}`} className="flex justify-between text-sm">
-                    <div>{li.quantity}× {li.name} ({li.sku})</div>
+                    <div>
+                      {li.quantity}× {li.name} ({li.sku})
+                    </div>
                     <div className="tabular-nums">{formatMoney(li.offerTotal)}</div>
                   </div>
                 ))}
