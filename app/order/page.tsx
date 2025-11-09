@@ -1,5 +1,5 @@
 // app/order/page.tsx
-import { verifyOrderToken, OrderPayload } from "@/lib/orderToken";
+import { verifyOrderToken, type OrderPayload } from "@/lib/orderToken";
 import { redirect } from "next/navigation";
 
 function fmt(num: number) {
