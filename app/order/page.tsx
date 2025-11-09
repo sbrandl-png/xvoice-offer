@@ -7,20 +7,30 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { verifyOrderToken } from "@/lib/orderToken";
 
+// Hilfsformatierung
 function formatMoney(value: number) {
   return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(value);
 }
+
+// Optional: lokale Typen (verlassen uns nicht auf die exakte Library-Union)
+type OrderRowLite = { sku: string; name: string; quantity: number; unit: number; total: number };
+type OrderPayloadLite = {
+  offerId: string;
+  customer: { company: string; contact: string; email: string; phone: string };
+  monthlyRows: OrderRowLite[];
+  oneTimeRows: OrderRowLite[];
+  vatRate: number;
+  createdAt: number;
+};
 
 export default function OrderPage() {
   const sp = useSearchParams();
   const rawToken = sp.get("token") || "";
 
   const result = useMemo(() => {
-    // Falls URL-encoded: erst decodieren
     const token = (() => {
       try { return decodeURIComponent(rawToken); } catch { return rawToken; }
     })();
-
     return verifyOrderToken(token);
   }, [rawToken]);
 
@@ -28,6 +38,7 @@ export default function OrderPage() {
     return <div className="max-w-3xl mx-auto p-6">Kein Token übergeben.</div>;
   }
 
+  // Fehlerpfad
   if (!result.ok) {
     return (
       <div className="max-w-3xl mx-auto p-6">
@@ -44,7 +55,10 @@ export default function OrderPage() {
     );
   }
 
-  const { payload, unsigned } = result;
+  // Erfolgszweig: defensiv unsigned ermitteln, ohne TS-Fehler
+  const payload = result.payload as unknown as OrderPayloadLite;
+  const isUnsigned = (result as any)?.unsigned === true; // <- kein Destructure, daher build-safe
+
   const mNet = payload.monthlyRows.reduce((a, r) => a + r.total, 0);
   const oNet = payload.oneTimeRows.reduce((a, r) => a + r.total, 0);
   const vatM = mNet * payload.vatRate;
@@ -54,7 +68,7 @@ export default function OrderPage() {
     <div className="max-w-4xl mx-auto p-6 space-y-6">
       <div className="text-2xl font-semibold">Bestellübersicht</div>
 
-      {unsigned && (
+      {isUnsigned && (
         <div className="text-sm p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
           Hinweis: Dieser Link ist <strong>nicht</strong> kryptografisch signiert (ORDER_SECRET nicht gesetzt).
         </div>
@@ -66,6 +80,7 @@ export default function OrderPage() {
             <div className="text-sm text-muted-foreground">Angebotsnummer</div>
             <div className="font-medium">{payload.offerId}</div>
           </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <div className="text-sm text-muted-foreground">Firma</div>
@@ -74,6 +89,7 @@ export default function OrderPage() {
               <div className="text-sm">{payload.customer.email || "–"}</div>
               <div className="text-sm">{payload.customer.phone || "–"}</div>
             </div>
+
             <div className="space-y-1">
               <div className="text-sm font-medium">Monatliche Positionen</div>
               {payload.monthlyRows.length === 0 ? (
@@ -130,7 +146,6 @@ export default function OrderPage() {
           <div className="pt-4 flex gap-3">
             <Button
               onClick={async () => {
-                // hier könnt ihr /api/place-order final antriggern
                 await fetch("/api/place-order", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
