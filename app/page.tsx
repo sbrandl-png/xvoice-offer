@@ -1002,6 +1002,38 @@ export default function Page() {
       const mOffer = monthlyRows.reduce((a, r) => a + r.offerTotal, 0);
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
+      // 👉 NEU: Token generieren
+    const offerId = "XVO-" + Date.now(); // oder eine eigene Logik für Angebotsnummer
+    const token = signOrderPayload({
+      offerId,
+      customer: {
+        company: customer.company,
+        contact: customer.contact,
+        email: customer.email,
+        phone: customer.phone,
+      },
+      salesperson,
+      monthlyRows: monthlyRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      oneTimeRows: oneTimeRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      vatRate,
+      createdAt: Date.now(),
+    });
+
+    // 👉 NEU: Token im HTML einsetzen
+    const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+
       await postJson(EMAIL_ENDPOINT, {
         meta: { subject },
         offerHtml,
