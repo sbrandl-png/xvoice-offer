@@ -1,90 +1,119 @@
 // app/api/place-order/route.ts
 import { NextResponse } from "next/server";
 import { verifyOrderToken } from "@/lib/orderToken";
-import { Resend } from "resend";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// -- Typen, die wir aus dem Token erwarten (du kannst sie bei Bedarf erweitern) --
+type OrderRow = {
+  sku: string;
+  name: string;
+  quantity: number;
+  listUnit: number;
+  offerUnit: number;
+  listTotal: number;
+  offerTotal: number;
+};
+type Customer = {
+  company?: string;
+  contact?: string;
+  email?: string;
+  phone?: string;
+  street?: string;
+  zip?: string;
+  city?: string;
+};
+type TokenPayload = {
+  offerId: string;
+  vatRate: number;
+  customer: Customer;
+  monthlyRows: OrderRow[];
+  oneTimeRows: OrderRow[];
+};
+
+// Utility: kleine Validierung
+function isNonEmptyString(v: unknown): v is string {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
 export async function POST(req: Request) {
   try {
-    const contentType = req.headers.get("content-type") || "";
-    let token = "";
-    let company = "", contact = "", email = "", phone = "", accept = "";
+    const body = await req.json().catch(() => ({} as any));
+    const { token } = body || {};
 
-    if (contentType.includes("application/json")) {
-      const j = await req.json();
-      token   = j.token || "";
-      company = j.company || "";
-      contact = j.contact || "";
-      email   = j.email || "";
-      phone   = j.phone || "";
-      accept  = j.accept ? "on" : "";
-    } else {
-      const form = await req.formData();
-      token   = String(form.get("token") || "");
-      company = String(form.get("company") || "");
-      contact = String(form.get("contact") || "");
-      email   = String(form.get("email") || "");
-      phone   = String(form.get("phone") || "");
-      accept  = String(form.get("accept") || "");
+    if (!isNonEmptyString(token)) {
+      return NextResponse.json(
+        { ok: false, error: "token fehlt oder ist ungültig." },
+        { status: 400 }
+      );
     }
 
-    if (!token) {
-      return NextResponse.json({ ok: false, error: "Token fehlt." }, { status: 400 });
-    }
-    if (!company || !contact || !email || accept !== "on") {
-      return NextResponse.json({ ok: false, error: "Bitte Formular vollständig ausfüllen und bestätigen." }, { status: 400 });
+    // 1) Token verifizieren
+    const verified = verifyOrderToken(token);
+
+    if (!verified.ok) {
+      return NextResponse.json(
+        { ok: false, error: `Token ungültig: ${verified.error}` },
+        { status: 400 }
+      );
     }
 
-    // Token prüfen & Payload lesen
-    const payload = verifyOrderToken(token);
+    // 2) Payload TYP-SICHER herausziehen (Type Guard erledigt das Narrowing)
+    const payload = verified.payload as TokenPayload;
 
-    // → MAKE: Weiterreichen
-    const hook = process.env.MAKE_WEBHOOK_URL;
-    if (hook) {
-      await fetch(hook, {
+    // Minimal-Validierung wichtiger Felder
+    if (!isNonEmptyString(payload.offerId)) {
+      return NextResponse.json(
+        { ok: false, error: "offerId fehlt im Payload." },
+        { status: 400 }
+      );
+    }
+    if (typeof payload.vatRate !== "number") {
+      return NextResponse.json(
+        { ok: false, error: "vatRate fehlt/ungültig im Payload." },
+        { status: 400 }
+      );
+    }
+
+    // 3) Optional: an Make/Pipedrive/Webhook weiterreichen
+    //    (nur wenn MAKE_WEBHOOK_URL gesetzt ist)
+    const makeUrl = process.env.MAKE_WEBHOOK_URL;
+    if (isNonEmptyString(makeUrl)) {
+      await fetch(makeUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Hier schicken wir alles Relevante hin
         body: JSON.stringify({
           source: "xvoice-offer-order",
           offerId: payload.offerId,
           vatRate: payload.vatRate,
-          customer: {
-            company, contact, email, phone,
-          },
-          salesperson: payload.salesperson || {},
+          customer: payload.customer,
           monthlyRows: payload.monthlyRows,
           oneTimeRows: payload.oneTimeRows,
-          createdAt: payload.createdAt,
-          submittedAt: Date.now(),
+          receivedAt: new Date().toISOString(),
         }),
+      }).catch((err) => {
+        // Nicht hart failen – wir antworten trotzdem 200, damit der Kunde nicht hängt
+        console.error("MAKE webhook error:", err);
       });
     }
 
-    // → RESEND: Eingangsbestätigung
-    const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
-      const resend = new Resend(resendKey);
-      const to = [email].concat(payload.salesperson?.email ? [payload.salesperson.email] : []);
-      await resend.emails.send({
-        from: `xVoice Aufträge <auftrag@xvoice-one.de>`,
-        to,
-        subject: `Bestelleingang – Angebot ${payload.offerId}`,
-        html: `
-          <p>Guten Tag ${contact},</p>
-          <p>vielen Dank für Ihre verbindliche Bestellung. Wir haben den Auftrag erhalten und melden uns kurzfristig mit der Auftragsbestätigung.</p>
-          <p><strong>Firma:</strong> ${company}<br/>
-             <strong>E-Mail:</strong> ${email}<br/>
-             <strong>Telefon:</strong> ${phone}</p>
-          <p>Referenz: Angebot ${payload.offerId}</p>
-          <p>Mit freundlichen Grüßen<br/>xVoice UC</p>
-        `.trim(),
-      });
-    }
-
-    return NextResponse.json({ ok: true });
+    // 4) Response an die App
+    return NextResponse.json({
+      ok: true,
+      offerId: payload.offerId,
+      info: "Order empfangen und verarbeitet.",
+    });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: String(err?.message || err) }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: String(err?.message || err) },
+      { status: 500 }
+    );
   }
+}
+
+// GET als Healthcheck
+export async function GET() {
+  return NextResponse.json({ ok: true, info: "place-order endpoint ready" });
 }
