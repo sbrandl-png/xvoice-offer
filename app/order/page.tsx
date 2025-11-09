@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-/* ===== BRAND / COMPANY (wie in der Mail) ===== */
+/* ===== BRAND / COMPANY ===== */
 const BRAND = {
   name: "xVoice UC",
   primary: "#ff4e00",
@@ -35,7 +35,6 @@ function fromB64urlToBuf(b64u: string) {
   const pad = "===".slice((b64u.length + 3) % 4);
   return Buffer.from(b64u.replace(/-/g, "+").replace(/_/g, "/") + pad, "base64");
 }
-
 async function hmacSha256(key: string, data: string) {
   const { createHmac } = await import("node:crypto");
   return createHmac("sha256", key).update(data).digest();
@@ -54,15 +53,19 @@ type OrderPayload = {
   monthlyRows: Row[];
   oneTimeRows: Row[];
   vatRate: number;
-  createdAt: number; // epoch ms
+  createdAt: number;
 };
 
 /* ===== Utils ===== */
 function formatMoney(value: number) {
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(value);
 }
 
-/* ===== Token-Verifikation (HS256, ohne Fremdpakete) ===== */
+/* ===== Token-Verifikation ===== */
 async function verifyToken(token: string) {
   const ORDER_SECRET = process.env.ORDER_SECRET || "";
   if (!ORDER_SECRET) return { ok: false as const, error: "ORDER_SECRET ist nicht gesetzt." };
@@ -73,7 +76,6 @@ async function verifyToken(token: string) {
 
   const [headB64, bodyB64, sigB64] = parts;
 
-  // Header prüfen
   try {
     const headerJson = fromB64urlToBuf(headB64).toString("utf8");
     const header = JSON.parse(headerJson);
@@ -84,7 +86,6 @@ async function verifyToken(token: string) {
     return { ok: false as const, error: "Header nicht lesbar." };
   }
 
-  // Signatur prüfen
   const toSign = `${headB64}.${bodyB64}`;
   const expected = await hmacSha256(ORDER_SECRET, toSign);
 
@@ -99,7 +100,6 @@ async function verifyToken(token: string) {
     return { ok: false as const, error: "Signatur ungültig." };
   }
 
-  // Payload decodieren
   try {
     const bodyJson = fromB64urlToBuf(bodyB64).toString("utf8");
     const payload = JSON.parse(bodyJson) as OrderPayload;
@@ -109,12 +109,19 @@ async function verifyToken(token: string) {
   }
 }
 
-/* ===== Design-Bausteine ===== */
+/* ===== Design ===== */
 function PageHeader() {
   return (
     <div
-      className="flex items-center justify-between gap-4 p-6 rounded-2xl shadow-sm"
-      style={{ background: BRAND.headerBg, color: BRAND.headerFg }}
+      className="flex items-center justify-between gap-4 p-6 shadow-sm"
+      style={{
+        background: BRAND.headerBg,
+        color: BRAND.headerFg,
+        borderTopLeftRadius: "14px",
+        borderTopRightRadius: "14px",
+        borderBottomLeftRadius: "0px",
+        borderBottomRightRadius: "0px",
+      }}
     >
       <div className="flex items-center gap-6">
         <img src={BRAND.logoUrl} alt="xVoice Logo" className="h-16 w-16 object-contain" />
@@ -135,13 +142,15 @@ function PageHeader() {
 }
 
 function AccentLine() {
-  return <div style={{ height: 3, background: BRAND.primary }} className="rounded-full" />;
+  return <div style={{ height: 3, background: BRAND.primary }} />;
 }
 
 function CardSection({ title, children }: React.PropsWithChildren<{ title: string }>) {
   return (
     <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-      <h2 className="font-medium mb-3" style={{ color: BRAND.dark }}>{title}</h2>
+      <h2 className="font-medium mb-3" style={{ color: BRAND.dark }}>
+        {title}
+      </h2>
       {children}
     </section>
   );
@@ -171,7 +180,9 @@ function ErrorBox({ title, message, fingerprint }: { title: string; message: str
       <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
         <h1 className="text-xl font-semibold mb-2">{title}</h1>
         <p className="text-sm text-neutral-700">{message}</p>
-        <p className="text-xs text-neutral-500 mt-2">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
+        <p className="text-xs text-neutral-500 mt-2">
+          Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.
+        </p>
         {fingerprint && (
           <p className="text-xs text-neutral-400 mt-2">Token-Fingerprint: {fingerprint}</p>
         )}
@@ -181,7 +192,7 @@ function ErrorBox({ title, message, fingerprint }: { title: string; message: str
   );
 }
 
-/* ===== Server Component ===== */
+/* ===== Hauptkomponente ===== */
 export default async function OrderPage(props: { searchParams?: Record<string, string | string[]> }) {
   try {
     const tokenParam = props?.searchParams?.token;
@@ -221,13 +232,11 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
         <PageHeader />
         <AccentLine />
 
-        {/* Kopf-Infos */}
         <div className="mt-6 mb-4 text-sm text-neutral-700">
           Angebot <strong>{payload.offerId}</strong> · erstellt am{" "}
           {new Date(payload.createdAt).toLocaleString("de-DE")}
         </div>
 
-        {/* Kundendaten */}
         <CardSection title="Kundendaten">
           <div className="text-sm text-neutral-800">
             <div><strong>Firma:</strong> {payload.customer.company || "—"}</div>
@@ -237,7 +246,6 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
           </div>
         </CardSection>
 
-        {/* Monatlich */}
         <div className="h-4" />
         <CardSection title="Monatliche Positionen">
           {payload.monthlyRows.length === 0 ? (
@@ -253,13 +261,21 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
             </ul>
           )}
           <div className="mt-3 text-sm border-t pt-2">
-            <div className="flex justify-between"><span>Zwischensumme (netto)</span><span className="tabular-nums">{formatMoney(mNet)}</span></div>
-            <div className="flex justify-between"><span>zzgl. USt.</span><span className="tabular-nums">{formatMoney(vatM)}</span></div>
-            <div className="flex justify-between font-semibold"><span>Brutto</span><span className="tabular-nums">{formatMoney(mNet + vatM)}</span></div>
+            <div className="flex justify-between">
+              <span>Zwischensumme (netto)</span>
+              <span className="tabular-nums">{formatMoney(mNet)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>zzgl. USt.</span>
+              <span className="tabular-nums">{formatMoney(vatM)}</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Brutto</span>
+              <span className="tabular-nums">{formatMoney(mNet + vatM)}</span>
+            </div>
           </div>
         </CardSection>
 
-        {/* Einmalig */}
         <div className="h-4" />
         <CardSection title="Einmalige Positionen">
           {payload.oneTimeRows.length === 0 ? (
@@ -275,16 +291,32 @@ export default async function OrderPage(props: { searchParams?: Record<string, s
             </ul>
           )}
           <div className="mt-3 text-sm border-t pt-2">
-            <div className="flex justify-between"><span>Zwischensumme (netto)</span><span className="tabular-nums">{formatMoney(oNet)}</span></div>
-            <div className="flex justify-between"><span>zzgl. USt.</span><span className="tabular-nums">{formatMoney(vatO)}</span></div>
-            <div className="flex justify-between font-semibold"><span>Brutto</span><span className="tabular-nums">{formatMoney(oNet + vatO)}</span></div>
+            <div className="flex justify-between">
+              <span>Zwischensumme (netto)</span>
+              <span className="tabular-nums">{formatMoney(oNet)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>zzgl. USt.</span>
+              <span className="tabular-nums">{formatMoney(vatO)}</span>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <span>Brutto</span>
+              <span className="tabular-nums">{formatMoney(oNet + vatO)}</span>
+            </div>
           </div>
         </CardSection>
 
-        {/* CTA */}
         <form action="/api/place-order" method="post" className="mt-6">
           <input type="hidden" name="orderIntent" value="true" />
-          <input type="hidden" name="token" value={Array.isArray(props?.searchParams?.token) ? props?.searchParams?.token[0] : (props?.searchParams?.token || "")} />
+          <input
+            type="hidden"
+            name="token"
+            value={
+              Array.isArray(props?.searchParams?.token)
+                ? props?.searchParams?.token[0]
+                : props?.searchParams?.token || ""
+            }
+          />
           <button
             type="submit"
             className="px-4 py-2 rounded-lg text-white"
