@@ -1,218 +1,261 @@
 // app/order/page.tsx
-import React from "react";
+import type { Metadata } from "next";
+import crypto from "crypto";
 
-// Server-only: ENV zur Request-Zeit lesen
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
-type OrderPayload = {
-  offerId: string;
-  customer: { company: string; contact: string; email: string; phone: string };
-  salesperson?: { name: string; email: string; phone: string };
-  monthlyRows: OrderRow[];
-  oneTimeRows: OrderRow[];
-  vatRate: number;
-  createdAt: number;
+// Falls du SEO-Titel willst
+export const metadata: Metadata = {
+  title: "xVoice UC – Bestellung prüfen",
 };
 
-// ---------- helpers ----------
-function b64urlToBuffer(s: string): Buffer {
-  const b64 = s.replace(/-/g, "+").replace(/_/g, "/");
-  const padLen = (4 - (b64.length % 4)) % 4;
-  const b64p = b64 + "=".repeat(padLen);
-  return Buffer.from(b64p, "base64");
+// Seite muss dynamisch sein, weil sie sich nach dem Querystring richtet
+export const dynamic = "force-dynamic";
+
+// ---------- Typen, passend zum Signer ----------
+type OrderRow = {
+  sku: string;
+  name: string;
+  quantity: number;
+  unit: number;   // Nettopreis pro Einheit (bereits rabattiert)
+  total: number;  // Nettosumme (quantity * unit)
+};
+
+type OrderPayload = {
+  offerId: string;
+  customer: {
+    company: string;
+    contact: string;
+    email: string;
+    phone: string;
+  };
+  salesperson: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+  monthlyRows: OrderRow[];
+  oneTimeRows: OrderRow[];
+  vatRate: number;     // z.B. 0.19
+  createdAt: number;   // epoch ms
+};
+
+// ---------- Hilfen ----------
+function cleanToken(raw: string): string {
+  if (!raw) return "";
+  let t = raw.trim();
+
+  // Versuche genau einmal zu dekodieren (falls doppelt-encodiert, bricht das hier nicht)
+  try { t = decodeURIComponent(t); } catch {}
+
+  // Falls eine ganze URL eingefügt wurde: nur den token-Query nehmen
+  const m = t.match(/[?&]token=([^&]+)/);
+  if (m) t = m[1];
+
+  // Quotes / spitze Klammern ab
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) t = t.slice(1, -1);
+  t = t.replace(/^<+|>+$/g, "");
+
+  // HTML-Entities, Zero-Width, Whitespaces
+  t = t.replace(/&amp;/g, "&");
+  t = t.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  t = t.replace(/\s+/g, "");
+
+  // Nur Base64url-Zeichen + Punkte erlauben
+  t = t.replace(/[^A-Za-z0-9._-]/g, "");
+
+  return t;
 }
 
-async function safeParsePayload(buf: Buffer): Promise<any> {
-  // 1) direkter UTF-8 JSON Versuch
+function b64urlToBuf(b64url: string): Buffer {
+  // Base64url -> Base64
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  // Padding ergänzen
+  const pad = b64.length % 4;
+  const padded = pad ? b64 + "=".repeat(4 - pad) : b64;
+  return Buffer.from(padded, "base64");
+}
+
+function bufToB64url(buf: Buffer): string {
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function formatMoneyEUR(value: number) {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR", minimumFractionDigits: 2 }).format(value);
+}
+
+function timeSince(ts: number) {
+  const d = new Date(ts);
+  return d.toLocaleString("de-DE");
+}
+
+// ---------- Verifikation ----------
+async function verifyOrderTokenServer(token: string): Promise<{ ok: true; payload: OrderPayload } | { ok: false; error: string }> {
+  if (!token) return { ok: false, error: "Kein Token übergeben" };
+
+  const ORDER_SECRET = process.env.ORDER_SECRET;
+  if (!ORDER_SECRET) return { ok: false, error: "ORDER_SECRET ist nicht gesetzt" };
+
+  // Erwartet: header.payload.signature (JWS-ähnlich, HS256)
+  const parts = token.split(".");
+  if (parts.length !== 3) return { ok: false, error: "Token-Format ungültig (Teile != 3)" };
+
+  const [h, p, s] = parts;
+
+  // Header/Payload als JSON einlesen
+  let headerJson: any;
+  let payloadJson: any;
   try {
-    return JSON.parse(buf.toString("utf8"));
-  } catch (_) {}
-
-  // 2) zlib/gzip erkennen & entpacken
-  const zlib = await import("zlib");
-  const isGzip = buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
-  const looksZlib = buf.length >= 2 && (buf[0] === 0x78 && (buf[1] === 0x01 || buf[1] === 0x9c || buf[1] === 0xda));
-
-  if (isGzip) {
-    const unzipped = zlib.gunzipSync(buf);
-    return JSON.parse(unzipped.toString("utf8"));
-  }
-  if (looksZlib) {
-    const inflated = zlib.inflateSync(buf);
-    return JSON.parse(inflated.toString("utf8"));
+    const headerBuf = b64urlToBuf(h);
+    const payloadBuf = b64urlToBuf(p);
+    headerJson = JSON.parse(headerBuf.toString("utf8"));
+    payloadJson = JSON.parse(payloadBuf.toString("utf8"));
+  } catch {
+    return { ok: false, error: "Header nicht lesbar" };
   }
 
-  // 3) letzter Versuch: latin1->utf8
+  // Nur HS256 zulassen
+  const alg = String(headerJson?.alg || "");
+  if (alg !== "HS256") return { ok: false, error: `Unerwarteter Algorithmus: ${alg}` };
+
+  // Signatur prüfen
   try {
-    return JSON.parse(Buffer.from(buf.toString("binary"), "binary").toString("utf8"));
+    const unsigned = `${h}.${p}`;
+    const mac = crypto.createHmac("sha256", Buffer.from(ORDER_SECRET, "utf8"));
+    mac.update(unsigned);
+    const expected = bufToB64url(mac.digest());
+    const safeEqual =
+      expected.length === s.length &&
+      crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(s));
+
+    if (!safeEqual) return { ok: false, error: "Signatur ungültig" };
   } catch (e) {
-    throw new Error(`Payload nicht lesbar: ${String((e as Error).message || e)}`);
+    return { ok: false, error: "Signaturprüfung fehlgeschlagen" };
   }
+
+  // Grobe Strukturprüfung des Payloads
+  const pl = payloadJson as OrderPayload;
+  if (
+    !pl ||
+    typeof pl.offerId !== "string" ||
+    !Array.isArray(pl.monthlyRows) ||
+    !Array.isArray(pl.oneTimeRows) ||
+    typeof pl.vatRate !== "number"
+  ) {
+    return { ok: false, error: "Payload unvollständig oder ungültig" };
+  }
+
+  return { ok: true, payload: pl };
 }
 
-async function verifyOrderTokenServer(tokenRaw: string): Promise<
-  | { ok: true; payload: OrderPayload; unsigned?: boolean }
-  | { ok: false; error: string }
-> {
-  try {
-    if (!tokenRaw) return { ok: false, error: "Kein Token" };
-    // Token aus URL holen (einmal decodieren – nicht doppelt!)
-    let token = tokenRaw;
-    try { token = decodeURIComponent(tokenRaw); } catch {}
+// ---------- Seite ----------
+export default async function OrderPage({ searchParams }: { searchParams: { token?: string } }) {
+  const tokenRaw = searchParams?.token || "";
+  const token = cleanToken(tokenRaw);
 
-    const parts = token.split(".");
-    if (parts.length < 2) return { ok: false, error: "Ungültiges Token-Format" };
-
-    const [h, p, s = ""] = parts;
-
-    // Header lesen
-    const headerBuf = b64urlToBuffer(h);
-    let header: { alg: "HS256" | "none"; typ?: string };
-    try {
-      header = JSON.parse(headerBuf.toString("utf8"));
-    } catch {
-      return { ok: false, error: "Header nicht lesbar" };
-    }
-
-    // Payload robust parsen (siehe safeParsePayload)
-    const payloadBuf = b64urlToBuffer(p);
-    const payload = await safeParsePayload(payloadBuf);
-
-    // Signatur prüfen (außer alg: none)
-    if (header.alg === "none") {
-      return { ok: true, payload, unsigned: true };
-    }
-
-    const secret = process.env.ORDER_SECRET;
-    if (!secret) return { ok: false, error: "ORDER_SECRET ist nicht gesetzt." };
-
-    const crypto = await import("crypto");
-    const msg = Buffer.from(`${h}.${p}`, "utf8");
-    const mac = crypto.createHmac("sha256", secret).update(msg).digest();
-    const given = b64urlToBuffer(s);
-
-    if (given.length !== mac.length) return { ok: false, error: "Signaturlänge inkonsistent" };
-    if (!crypto.timingSafeEqual(given, mac)) return { ok: false, error: "Signatur ungültig" };
-
-    return { ok: true, payload };
-  } catch (e: any) {
-    return { ok: false, error: String(e?.message || e) };
-  }
-}
-
-// ---------- Server Component ----------
-export default async function OrderPage({
-  searchParams,
-}: {
-  searchParams: { token?: string };
-}) {
-  const tokenParam = searchParams?.token || "";
-  const result = await verifyOrderTokenServer(tokenParam);
-
-  if (!tokenParam) {
-    return (
-      <main className="max-w-2xl mx-auto p-6">
-        <h1 className="text-2xl font-semibold mb-2">Ungültiger oder beschädigter Bestelllink</h1>
-        <p className="text-sm text-red-700 mb-4">Kein Token gefunden.</p>
-        <p className="text-sm">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
-      </main>
-    );
-  }
+  const result = await verifyOrderTokenServer(token);
 
   if (!result.ok) {
     return (
       <main className="max-w-2xl mx-auto p-6">
         <h1 className="text-2xl font-semibold mb-2">Ungültiger oder beschädigter Bestelllink</h1>
-        <p className="text-sm text-red-700 mb-2">Fehler: {result.error}</p>
-        <p className="text-sm">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
+        <p className="text-sm text-red-700 mb-4">Fehler: {result.error}</p>
+        <p className="text-sm">
+          Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.
+        </p>
+        {!!token && (
+          <p className="mt-3 text-xs text-gray-500">
+            Token-Fingerprint: {token.slice(0, 12)}… (len {token.length})
+          </p>
+        )}
       </main>
     );
   }
 
-  const { payload, unsigned } = result;
+  const { payload } = result;
 
   const mNet = payload.monthlyRows.reduce((a, r) => a + r.total, 0);
   const oNet = payload.oneTimeRows.reduce((a, r) => a + r.total, 0);
   const vatM = mNet * payload.vatRate;
   const vatO = oNet * payload.vatRate;
+  const grossM = mNet + vatM;
+  const grossO = oNet + vatO;
 
   return (
     <main className="max-w-3xl mx-auto p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Bestellung bestätigen</h1>
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Bestellung prüfen</h1>
+        <span className="text-xs text-gray-500">Angebot: {payload.offerId}</span>
+      </header>
 
-      {unsigned && (
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-          Hinweis: Token wurde ohne Signatur erstellt (unsigned). Bitte in der Produktion ein <code>ORDER_SECRET</code> setzen.
+      <section className="rounded-xl border p-4">
+        <h2 className="text-sm font-semibold mb-2">Kunde</h2>
+        <div className="text-sm">
+          <div><strong>Firma:</strong> {payload.customer.company || "—"}</div>
+          <div><strong>Ansprechpartner:</strong> {payload.customer.contact || "—"}</div>
+          <div><strong>E-Mail:</strong> {payload.customer.email || "—"}</div>
+          <div><strong>Telefon:</strong> {payload.customer.phone || "—"}</div>
         </div>
-      )}
-
-      <section className="border rounded-lg p-4 space-y-2">
-        <div className="text-sm"><strong>Angebotsnummer:</strong> {payload.offerId}</div>
-        <div className="text-sm"><strong>Kunde:</strong> {payload.customer.company} · {payload.customer.contact}</div>
-        <div className="text-sm"><strong>E-Mail:</strong> {payload.customer.email} · <strong>Telefon:</strong> {payload.customer.phone}</div>
       </section>
 
-      <section className="border rounded-lg p-4">
-        <h2 className="font-medium mb-2">Monatliche Positionen</h2>
+      <section className="rounded-xl border p-4">
+        <h2 className="text-sm font-semibold mb-3">Monatliche Positionen</h2>
         {payload.monthlyRows.length === 0 ? (
-          <div className="text-sm opacity-70">Keine monatlichen Positionen.</div>
+          <div className="text-sm text-gray-500">Keine monatlichen Positionen.</div>
         ) : (
-          <ul className="text-sm space-y-1">
-            {payload.monthlyRows.map((r, i) => (
-              <li key={`m-${i}`} className="flex justify-between">
-                <span>{r.quantity}× {r.name} ({r.sku})</span>
-                <span className="tabular-nums">{r.total.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
-              </li>
+          <div className="space-y-2">
+            {payload.monthlyRows.map((r) => (
+              <div key={`m-${r.sku}`} className="flex items-center justify-between text-sm">
+                <div>{r.quantity}× {r.name} ({r.sku})</div>
+                <div className="tabular-nums">{formatMoneyEUR(r.total)}</div>
+              </div>
             ))}
-          </ul>
+            <div className="pt-2 mt-2 border-t text-sm grid grid-cols-[1fr_auto] gap-x-6">
+              <span>Zwischensumme netto</span><span className="text-right tabular-nums">{formatMoneyEUR(mNet)}</span>
+              <span>zzgl. USt. ({Math.round(payload.vatRate * 100)}%)</span><span className="text-right tabular-nums">{formatMoneyEUR(vatM)}</span>
+              <span className="font-semibold">Brutto</span><span className="text-right tabular-nums font-semibold">{formatMoneyEUR(grossM)}</span>
+            </div>
+          </div>
         )}
-        <div className="mt-3 text-sm border-t pt-2 flex justify-between">
-          <span>Summe netto</span>
-          <span className="tabular-nums">{mNet.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
-        </div>
-        <div className="text-sm flex justify-between">
-          <span>zzgl. USt.</span>
-          <span className="tabular-nums">{vatM.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
-        </div>
       </section>
 
-      <section className="border rounded-lg p-4">
-        <h2 className="font-medium mb-2">Einmalige Positionen</h2>
+      <section className="rounded-xl border p-4">
+        <h2 className="text-sm font-semibold mb-3">Einmalige Positionen</h2>
         {payload.oneTimeRows.length === 0 ? (
-          <div className="text-sm opacity-70">Keine einmaligen Positionen.</div>
+          <div className="text-sm text-gray-500">Keine einmaligen Positionen.</div>
         ) : (
-          <ul className="text-sm space-y-1">
-            {payload.oneTimeRows.map((r, i) => (
-              <li key={`o-${i}`} className="flex justify-between">
-                <span>{r.quantity}× {r.name} ({r.sku})</span>
-                <span className="tabular-nums">{r.total.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
-              </li>
+          <div className="space-y-2">
+            {payload.oneTimeRows.map((r) => (
+              <div key={`o-${r.sku}`} className="flex items-center justify-between text-sm">
+                <div>{r.quantity}× {r.name} ({r.sku})</div>
+                <div className="tabular-nums">{formatMoneyEUR(r.total)}</div>
+              </div>
             ))}
-          </ul>
+            <div className="pt-2 mt-2 border-t text-sm grid grid-cols-[1fr_auto] gap-x-6">
+              <span>Zwischensumme netto</span><span className="text-right tabular-nums">{formatMoneyEUR(oNet)}</span>
+              <span>zzgl. USt. ({Math.round(payload.vatRate * 100)}%)</span><span className="text-right tabular-nums">{formatMoneyEUR(vatO)}</span>
+              <span className="font-semibold">Brutto</span><span className="text-right tabular-nums font-semibold">{formatMoneyEUR(grossO)}</span>
+            </div>
+          </div>
         )}
-        <div className="mt-3 text-sm border-t pt-2 flex justify-between">
-          <span>Summe netto</span>
-          <span className="tabular-nums">{oNet.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
-        </div>
-        <div className="text-sm flex justify-between">
-          <span>zzgl. USt.</span>
-          <span className="tabular-nums">{vatO.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+      </section>
+
+      <section className="rounded-xl border p-4">
+        <h2 className="text-sm font-semibold mb-2">Vertrieb</h2>
+        <div className="text-sm">
+          <div><strong>Name:</strong> {payload.salesperson.name || "—"}</div>
+          <div><strong>E-Mail:</strong> {payload.salesperson.email || "—"}</div>
+          <div><strong>Telefon:</strong> {payload.salesperson.phone || "—"}</div>
+          <div className="text-xs text-gray-500 mt-2">Erstellt am {timeSince(payload.createdAt)}</div>
         </div>
       </section>
 
-      <form action="/api/place-order" method="post" className="space-y-3">
-        <input type="hidden" name="token" value={decodeURIComponent(tokenParam)} />
-        <button
-          type="submit"
-          className="inline-flex items-center px-4 py-2 rounded-md text-white"
-          style={{ backgroundColor: "#ff4e00" }}
-        >
-          Bestellung verbindlich absenden
-        </button>
-      </form>
+      {/* Hier würdest du den abschließenden Bestätigen-Flow einbauen (POST /api/place-order o.ä.) */}
+      <div className="text-xs text-gray-500 text-center">
+        Prüfe die Angaben. Bei Fragen melde dich gern bei uns – vielen Dank!
+      </div>
     </main>
   );
 }
