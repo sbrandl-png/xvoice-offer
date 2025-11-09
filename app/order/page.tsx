@@ -1,64 +1,110 @@
 // app/order/page.tsx
-"use client";
+import React from "react";
+import { headers } from "next/headers";
 
-import React, { Suspense, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { verifyOrderToken } from "@/lib/orderToken";
-
-// Verhindert statische Vor-Generierung dieser Seite
+// Laufzeit & Rendering auf Request erzwingen (damit ENV zur Request-Zeit gelesen wird)
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-// Hilfsformatierung
-function formatMoney(value: number) {
-  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(value);
-}
-
-// Schlanke Typen (unabhängig von exakten Library-Union-Typen)
-type OrderRowLite = { sku: string; name: string; quantity: number; unit: number; total: number };
-type OrderPayloadLite = {
+type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
+type OrderPayload = {
   offerId: string;
   customer: { company: string; contact: string; email: string; phone: string };
-  monthlyRows: OrderRowLite[];
-  oneTimeRows: OrderRowLite[];
+  salesperson?: { name: string; email: string; phone: string };
+  monthlyRows: OrderRow[];
+  oneTimeRows: OrderRow[];
   vatRate: number;
   createdAt: number;
 };
 
-function OrderPageInner() {
-  const sp = useSearchParams();
-  const rawToken = sp.get("token") || "";
+// ---- serverseitige JWT-Helfer (HMAC-SHA256, base64url) ----
+function b64url(bytes: Uint8Array) {
+  const b64 = Buffer.from(bytes).toString("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+function b64urlDecode(s: string) {
+  const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  return Buffer.from(b64, "base64");
+}
 
-  const result = useMemo(() => {
-    const token = (() => {
-      try { return decodeURIComponent(rawToken); } catch { return rawToken; }
-    })();
-    return verifyOrderToken(token);
-  }, [rawToken]);
+async function verifyOrderTokenServer(token: string): Promise<
+  | { ok: true; payload: OrderPayload; unsigned?: boolean }
+  | { ok: false; error: string }
+> {
+  try {
+    if (!token) return { ok: false, error: "Kein Token" };
+    const parts = token.split(".");
+    if (parts.length < 2) return { ok: false, error: "Ungültiges Token-Format" };
 
-  if (!rawToken) {
-    return <div className="max-w-3xl mx-auto p-6">Kein Token übergeben.</div>;
+    const [h, p, s = ""] = parts;
+    const header = JSON.parse(b64urlDecode(h).toString("utf8")) as { alg: "HS256" | "none"; typ: string };
+    const payload = JSON.parse(b64urlDecode(p).toString("utf8")) as OrderPayload;
+    const msg = `${h}.${p}`;
+    const secret = process.env.ORDER_SECRET;
+
+    if (header.alg === "none") {
+      return { ok: true, payload, unsigned: true };
+    }
+
+    if (!secret) {
+      // Secret fehlt auf dem Server (falsches Env / nicht gesetzt)
+      return { ok: false, error: "ORDER_SECRET ist nicht gesetzt." };
+    }
+
+    // HMAC SHA256 prüfen
+    const crypto = await import("crypto");
+    const mac = crypto.createHmac("sha256", secret).update(msg).digest();
+    const given = b64urlDecode(s);
+
+    if (given.length !== mac.length) return { ok: false, error: "Signaturlänge inkonsistent" };
+    // timing-safe compare
+    if (!crypto.timingSafeEqual(given, mac)) return { ok: false, error: "Signatur ungültig" };
+
+    return { ok: true, payload };
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e) };
+  }
+}
+
+// ---- Server Component: bekommt searchParams vom App Router ----
+export default async function OrderPage({
+  searchParams,
+}: {
+  searchParams: { token?: string };
+}) {
+  const tokenRaw = searchParams?.token || "";
+  const token = (() => {
+    try {
+      return decodeURIComponent(tokenRaw);
+    } catch {
+      return tokenRaw;
+    }
+  })();
+
+  const result = await verifyOrderTokenServer(token);
+
+  if (!token) {
+    return (
+      <main className="max-w-2xl mx-auto p-6">
+        <h1 className="text-2xl font-semibold mb-2">Ungültiger oder beschädigter Bestelllink</h1>
+        <p className="text-sm text-red-700 mb-4">Kein Token gefunden.</p>
+        <p className="text-sm">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
+      </main>
+    );
   }
 
   if (!result.ok) {
     return (
-      <div className="max-w-3xl mx-auto p-6">
-        <Card>
-          <CardContent className="p-6 space-y-3">
-            <div className="text-lg font-semibold">Ungültiger oder beschädigter Bestelllink</div>
-            <div className="text-sm text-red-600">Fehler: {result.error}</div>
-            <div className="text-sm text-muted-foreground">
-              Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <main className="max-w-2xl mx-auto p-6">
+        <h1 className="text-2xl font-semibold mb-2">Ungültiger oder beschädigter Bestelllink</h1>
+        <p className="text-sm text-red-700 mb-2">Fehler: {result.error}</p>
+        <p className="text-sm">Bitte fordere das Angebot erneut an oder kontaktiere unseren Support.</p>
+      </main>
     );
   }
 
-  const payload = result.payload as unknown as OrderPayloadLite;
-  const isUnsigned = (result as any)?.unsigned === true; // optional vorhanden
+  const { payload, unsigned } = result;
 
   const mNet = payload.monthlyRows.reduce((a, r) => a + r.total, 0);
   const oNet = payload.oneTimeRows.reduce((a, r) => a + r.total, 0);
@@ -66,110 +112,79 @@ function OrderPageInner() {
   const vatO = oNet * payload.vatRate;
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <div className="text-2xl font-semibold">Bestellübersicht</div>
+    <main className="max-w-3xl mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Bestellung bestätigen</h1>
 
-      {isUnsigned && (
-        <div className="text-sm p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800">
-          Hinweis: Dieser Link ist <strong>nicht</strong> kryptografisch signiert (ORDER_SECRET nicht gesetzt).
+      {unsigned && (
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+          Hinweis: Token wurde ohne Signatur erstellt (unsigned). Bitte in der Produktion ein <code>ORDER_SECRET</code> setzen.
         </div>
       )}
 
-      <Card>
-        <CardContent className="p-6 space-y-4">
-          <div>
-            <div className="text-sm text-muted-foreground">Angebotsnummer</div>
-            <div className="font-medium">{payload.offerId}</div>
-          </div>
+      <section className="border rounded-lg p-4 space-y-2">
+        <div className="text-sm"><strong>Angebotsnummer:</strong> {payload.offerId}</div>
+        <div className="text-sm"><strong>Kunde:</strong> {payload.customer.company} · {payload.customer.contact}</div>
+        <div className="text-sm"><strong>E-Mail:</strong> {payload.customer.email} · <strong>Telefon:</strong> {payload.customer.phone}</div>
+      </section>
 
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <div className="text-sm text-muted-foreground">Firma</div>
-              <div className="font-medium">{payload.customer.company || "–"}</div>
-              <div className="text-sm">{payload.customer.contact || "–"}</div>
-              <div className="text-sm">{payload.customer.email || "–"}</div>
-              <div className="text-sm">{payload.customer.phone || "–"}</div>
-            </div>
+      <section className="border rounded-lg p-4">
+        <h2 className="font-medium mb-2">Monatliche Positionen</h2>
+        {payload.monthlyRows.length === 0 ? (
+          <div className="text-sm opacity-70">Keine monatlichen Positionen.</div>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {payload.monthlyRows.map((r, i) => (
+              <li key={`m-${i}`} className="flex justify-between">
+                <span>{r.quantity}× {r.name} ({r.sku})</span>
+                <span className="tabular-nums">{(r.total).toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 text-sm border-t pt-2 flex justify-between">
+          <span>Summe netto</span>
+          <span className="tabular-nums">{mNet.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+        </div>
+        <div className="text-sm flex justify-between">
+          <span>zzgl. USt.</span>
+          <span className="tabular-nums">{vatM.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+        </div>
+      </section>
 
-            <div className="space-y-1">
-              <div className="text-sm font-medium">Monatliche Positionen</div>
-              {payload.monthlyRows.length === 0 ? (
-                <div className="text-sm text-muted-foreground">–</div>
-              ) : (
-                payload.monthlyRows.map((r, i) => (
-                  <div key={`m-${i}`} className="flex justify-between text-sm">
-                    <span>{r.quantity}× {r.name} ({r.sku})</span>
-                    <span className="tabular-nums">{formatMoney(r.total)}</span>
-                  </div>
-                ))
-              )}
-              <div className="pt-2 border-t flex justify-between text-sm font-medium">
-                <span>Summe mtl. (netto)</span>
-                <span className="tabular-nums">{formatMoney(mNet)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>zzgl. USt.</span>
-                <span className="tabular-nums">{formatMoney(vatM)}</span>
-              </div>
-              <div className="flex justify-between text-sm font-semibold">
-                <span>mtl. Brutto</span>
-                <span className="tabular-nums">{formatMoney(mNet + vatM)}</span>
-              </div>
-            </div>
-          </div>
+      <section className="border rounded-lg p-4">
+        <h2 className="font-medium mb-2">Einmalige Positionen</h2>
+        {payload.oneTimeRows.length === 0 ? (
+          <div className="text-sm opacity-70">Keine einmaligen Positionen.</div>
+        ) : (
+          <ul className="text-sm space-y-1">
+            {payload.oneTimeRows.map((r, i) => (
+              <li key={`o-${i}`} className="flex justify-between">
+                <span>{r.quantity}× {r.name} ({r.sku})</span>
+                <span className="tabular-nums">{(r.total).toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-3 text-sm border-t pt-2 flex justify-between">
+          <span>Summe netto</span>
+          <span className="tabular-nums">{oNet.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+        </div>
+        <div className="text-sm flex justify-between">
+          <span>zzgl. USt.</span>
+          <span className="tabular-nums">{vatO.toLocaleString("de-DE", { style: "currency", currency: "EUR" })}</span>
+        </div>
+      </section>
 
-          <div className="pt-4 border-t space-y-1">
-            <div className="text-sm font-medium">Einmalige Positionen</div>
-            {payload.oneTimeRows.length === 0 ? (
-              <div className="text-sm text-muted-foreground">–</div>
-            ) : (
-              payload.oneTimeRows.map((r, i) => (
-                <div key={`o-${i}`} className="flex justify-between text-sm">
-                  <span>{r.quantity}× {r.name} ({r.sku})</span>
-                  <span className="tabular-nums">{formatMoney(r.total)}</span>
-                </div>
-              ))
-            )}
-            <div className="pt-2 border-t flex justify-between text-sm font-medium">
-              <span>Summe einmalig (netto)</span>
-              <span className="tabular-nums">{formatMoney(oNet)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span>zzgl. USt.</span>
-              <span className="tabular-nums">{formatMoney(vatO)}</span>
-            </div>
-            <div className="flex justify-between text-sm font-semibold">
-              <span>einmalig Brutto</span>
-              <span className="tabular-nums">{formatMoney(oNet + vatO)}</span>
-            </div>
-          </div>
-
-          <div className="pt-4 flex gap-3">
-            <Button
-              onClick={async () => {
-                await fetch("/api/place-order", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ token: rawToken, confirm: true }),
-                });
-                alert("Bestellung ausgelöst. Vielen Dank!");
-              }}
-              style={{ backgroundColor: "#ff4e00" }}
-            >
-              Bestellung kostenpflichtig auslösen
-            </Button>
-            <Button variant="outline" onClick={() => history.back()}>Zurück</Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-export default function OrderPage() {
-  return (
-    <Suspense fallback={<div className="max-w-3xl mx-auto p-6">Lade Bestellseite…</div>}>
-      <OrderPageInner />
-    </Suspense>
+      <form action="/api/place-order" method="post" className="space-y-3">
+        <input type="hidden" name="token" value={token} />
+        <button
+          type="submit"
+          className="inline-flex items-center px-4 py-2 rounded-md text-white"
+          style={{ backgroundColor: "#ff4e00" }}
+        >
+          Bestellung verbindlich absenden
+        </button>
+      </form>
+    </main>
   );
 }
