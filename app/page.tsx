@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
+import { signOrderPayload } from "@/lib/orderToken";
 
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
