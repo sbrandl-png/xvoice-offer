@@ -1,6 +1,6 @@
 "use client";
 
-import React, { use Effect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -79,32 +79,81 @@ type Salesperson = {
 
 // ===== MONATLICHER KATALOG =====
 const MONTHLY: CatalogItem[] = [
-  { sku: "XVPR", name: "xVoice UC Premium", price: 8.95, unit: "/Monat", billing: "monthly",
-    desc: "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
-    maxDiscountPct: 40 },
-  { sku: "XVDV", name: "xVoice UC Device Only", price: 3.85, unit: "/Monat", billing: "monthly",
-    desc: "Lizenz für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.", maxDiscountPct: 40 },
-  { sku: "XVMO", name: "xVoice UC Smartphone Only", price: 5.70, unit: "/Monat", billing: "monthly",
-    desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).", maxDiscountPct: 40 },
-  { sku: "XVTE", name: "xVoice UC Teams Integration", price: 4.75, unit: "/Monat", billing: "monthly",
-    desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).", maxDiscountPct: 20 },
-  { sku: "XVPS", name: "xVoice UC Premium Service 4h SLA (je Lizenz)", price: 1.35, unit: "/Monat", billing: "monthly",
-    desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.", maxDiscountPct: 0 },
-  { sku: "XVCRM", name: "xVoice UC Software Integration Lizenz", price: 5.95, unit: "/Monat", billing: "monthly",
-    desc: "Nahtlose Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).", maxDiscountPct: 20 },
-  { sku: "XVF2M", name: "xVoice UC Fax2Mail Service", price: 0.99, unit: "/Monat", billing: "monthly",
-    desc: "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).", maxDiscountPct: 100 },
+  {
+    sku: "XVPR",
+    name: "xVoice UC Premium",
+    price: 8.95,
+    unit: "/Monat",
+    billing: "monthly",
+    desc:
+      "Voller Leistungsumfang inkl. Softphone & Smartphone, beliebige Hardphones, Teams Add-In, ACD, Warteschleifen, Callcenter, Fax2Mail.",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVDV",
+    name: "xVoice UC Device Only",
+    price: 3.85,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "Lizenz für analoge Faxe, Türsprechstellen, Räume oder reine Tischtelefon-Nutzer.",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVMO",
+    name: "xVoice UC Smartphone Only",
+    price: 5.70,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "Premium-Funktionsumfang, beschränkt auf mobile Nutzung (iOS/Android/macOS).",
+    maxDiscountPct: 40,
+  },
+  {
+    sku: "XVTE",
+    name: "xVoice UC Teams Integration",
+    price: 4.75,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "Native MS Teams Integration (Phone Standard Lizenz von Microsoft erforderlich).",
+    maxDiscountPct: 20,
+  },
+  {
+    sku: "XVPS",
+    name: "xVoice UC Premium Service 4h SLA (je Lizenz)",
+    price: 1.35,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "4h Reaktionszeit inkl. bevorzugtem Hardwaretausch & Konfigurationsänderungen.",
+    maxDiscountPct: 0, // kein Rabatt
+  },
+  {
+    sku: "XVCRM",
+    name: "xVoice UC Software Integration Lizenz",
+    price: 5.95,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "Nahtlose Integration in CRM/Helpdesk (Salesforce, HubSpot, Zendesk, Dynamics u.a.).",
+    maxDiscountPct: 20,
+  },
+  {
+    sku: "XVF2M",
+    name: "xVoice UC Fax2Mail Service",
+    price: 0.99,
+    unit: "/Monat",
+    billing: "monthly",
+    desc: "Eingehende Faxe bequem als PDF per E-Mail (virtuelle Fax-Nebenstellen).",
+    maxDiscountPct: 100,
+  },
 ];
 
 // ===== SETUP-TIERS: Fallback =====
 const SETUP_TIERS_FALLBACK: SetupTier[] = [
-  { minLicenses: 1, maxLicenses: 10, sku: "XVIKS10", name: "Installations- & Konfigurationspauschale bis 10 User", price: 299.0 },
-  { minLicenses: 11, maxLicenses: 20, sku: "XVIKS20", name: "Installations- & Konfigurationspauschale bis 20 User", price: 399.0 },
-  { minLicenses: 21, maxLicenses: 50, sku: "XVIKS50", name: "Installations- & Konfigurationspauschale bis 50 User", price: 899.0 },
-  { minLicenses: 51, maxLicenses: 100, sku: "XVIKS100", name: "Installations- & Konfigurationspauschale bis 100 User", price: 1299.0 },
-  { minLicenses: 101, maxLicenses: 200, sku: "XVIKS200", name: "Installations- & Konfigurationspauschale bis 200 User", price: 1699.0 },
-  { minLicenses: 201, maxLicenses: 500, sku: "XVIKS500", name: "Installations- & Konfigurationspauschale bis 500 User", price: 1999.0 },
-  { minLicenses: 501, maxLicenses: 1000, sku: "XVIKS1000", name: "Installations- & Konfigurationspauschale bis 1000 User", price: 2999.0 },
+  { minLicenses: 1,  maxLicenses: 10,  sku: "XVIKS10",  name: "Installations- & Konfigurationspauschale bis 10 User",  price: 299.0 },
+  { minLicenses: 11, maxLicenses: 20, sku: "XVIKS20",  name: "Installations- & Konfigurationspauschale bis 20 User",  price: 399.0 },
+  { minLicenses: 21, maxLicenses: 50, sku: "XVIKS50",  name: "Installations- & Konfigurationspauschale bis 50 User",  price: 899.0 },
+  { minLicenses: 51, maxLicenses: 100, sku: "XVIKS100",  name: "Installations- & Konfigurationspauschale bis 100 User",  price: 1299.0 },
+  { minLicenses: 101, maxLicenses: 200, sku: "XVIKS200",  name: "Installations- & Konfigurationspauschale bis 200 User",  price: 1699.0 },
+  { minLicenses: 201, maxLicenses: 500, sku: "XVIKS500",  name: "Installations- & Konfigurationspauschale bis 500 User",  price: 1999.0 },
+  { minLicenses: 501, maxLicenses: 1000, sku: "XVIKS1000",  name: "Installations- & Konfigurationspauschale bis 1000 User",  price: 2999.0 },
   { minLicenses: 1001, maxLicenses: Number.POSITIVE_INFINITY, sku: "XVIKS_XXL", name: "Installations- & Konfigurationspauschale (XXL)", price: 4999.0 },
 ];
 
@@ -150,10 +199,7 @@ function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
 function escapeHtml(str: string) {
-  return String(str)
-    .replaceAll("&", "&amp;").replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;").replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(str).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
 }
 function fullCustomerAddress(c: Customer) {
   const lines = [c.company || "", c.contact || "", c.street || "", [c.zip, c.city].filter(Boolean).join(" "), c.email || "", c.phone || ""].filter(Boolean);
@@ -172,11 +218,13 @@ function parseCsvLines(csv: string): string[][] {
   const lines = csv.split(/\r?\n/).filter(l => l.trim().length > 0);
   if (lines.length === 0) return [];
   const delim = detectDelimiter(lines[0]);
-  return lines.map(line => line.split(delim).map(cell => {
-    const t = cell.trim();
-    const m = t.match(/^"(.*)"$/);
-    return m ? m[1].replace(/""/g, '"') : t;
-  }));
+  return lines.map(line => {
+    return line.split(delim).map(cell => {
+      const t = cell.trim();
+      const m = t.match(/^"(.*)"$/);
+      return m ? m[1].replace(/""/g, '"') : t;
+    });
+  });
 }
 
 // ===== EMAIL HTML =====
@@ -229,7 +277,9 @@ function buildEmailHtml(params: {
   const clientImage = "https://onecdn.io/media/5b9be381-eed9-40b6-99ef-25a944a49927/full";
 
   function rowsHtml(rows: BuiltRow[]) {
-    return rows.map(li => `
+    return rows
+      .map(
+        (li) => `
       <tr>
         <td style="${s.td}">
           <strong>${escapeHtml(li.name)}</strong>
@@ -254,7 +304,9 @@ function buildEmailHtml(params: {
               : `<strong>${formatMoney(li.offerTotal)}</strong>`
           }
         </td>
-      </tr>`).join("");
+      </tr>`
+      )
+      .join("");
   }
 
   function totalsSection(rows: BuiltRow[]) {
@@ -269,7 +321,9 @@ function buildEmailHtml(params: {
         <td style="${s.totalLabel}">Listen-Zwischensumme (netto)</td>
         <td style="${s.totalValue}"><strong>${formatMoney(listSubtotal)}</strong></td>
       </tr>
-      ${discount > 0 ? `
+      ${
+        discount > 0
+          ? `
       <tr>
         <td colspan="2"></td>
         <td style="${s.totalLabel}">Rabatt gesamt</td>
@@ -279,12 +333,14 @@ function buildEmailHtml(params: {
         <td colspan="2"></td>
         <td style="${s.totalLabel}">Zwischensumme nach Rabatt</td>
         <td style="${s.totalValue}"><strong>${formatMoney(offerSubtotal)}</strong></td>
-      </tr>` : `
+      </tr>`
+          : `
       <tr>
         <td colspan="2"></td>
         <td style="${s.totalLabel}">Zwischensumme (netto)</td>
         <td style="${s.totalValue}"><strong>${formatMoney(offerSubtotal)}</strong></td>
-      </tr>`}
+      </tr>`
+      }
       <tr>
         <td colspan="2"></td>
         <td style="${s.totalLabel}">zzgl. USt. (19%)</td>
@@ -294,7 +350,8 @@ function buildEmailHtml(params: {
         <td colspan="2"></td>
         <td style="${s.totalLabel}"><strong>Bruttosumme</strong></td>
         <td style="${s.totalValue}"><strong>${formatMoney(gross)}</strong></td>
-      </tr>`;
+      </tr>
+    `;
   }
 
   const addressCustomer = fullCustomerAddress(customer);
@@ -309,7 +366,7 @@ function buildEmailHtml(params: {
         <table style="${s.headerTable}">
           <tr>
             <td><img src="${BRAND.logoUrl}" alt="xVoice Logo" style="${s.logo}" /></td>
-          </tr>
+           </tr>
         </table>
       </div>
       <div style="${s.accent}"></div>
@@ -341,6 +398,7 @@ function buildEmailHtml(params: {
           </tr>
         </table>
 
+        <!-- MONATLICHE POSITIONEN -->
         <h3 style="${s.h3};margin-top:8px">Monatliche Positionen</h3>
         <table width="100%" style="border-collapse:collapse;margin-top:6px">
           <thead>
@@ -357,7 +415,10 @@ function buildEmailHtml(params: {
           </tbody>
         </table>
 
-        ${oneTimeRows.length > 0 ? `
+        <!-- EINMALIGE POSITIONEN -->
+        ${
+          oneTimeRows.length > 0
+            ? `
         <h3 style="${s.h3};margin-top:18px">Einmalige Positionen</h3>
         <table width="100%" style="border-collapse:collapse;margin-top:6px">
           <thead>
@@ -372,14 +433,17 @@ function buildEmailHtml(params: {
             ${rowsHtml(oneTimeRows)}
             ${totalsSection(oneTimeRows)}
           </tbody>
-        </table>` : ""}
+        </table>
+        `
+            : ""
+        }
 
         <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
-          <!-- FIX: korrekter Link, kein doppeltes <a> -->
           <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}" style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">Jetzt verbindlich bestellen</a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
+        <!-- Vertriebsgruß -->
         <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <p style="${s.p}">Mit freundlichen Grüßen</p>
           ${salesperson.name ? `<p style="${s.p}"><strong>${escapeHtml(salesperson.name)}</strong></p>` : ""}
@@ -387,8 +451,10 @@ function buildEmailHtml(params: {
           ${salesperson.email ? `<p style="${s.pSmall}">${escapeHtml(salesperson.email)}</p>` : ""}
         </div>
 
+        <!-- Orange Linie über CEO-Block -->
         <hr style="${s.hrOrange}" />
 
+        <!-- CEO-Block -->
         <div style="margin-top:0;border-top:1px solid #eee;padding-top:14px;">
           <table width="100%" style="border-collapse:collapse">
             <tr>
@@ -406,6 +472,7 @@ function buildEmailHtml(params: {
 
         <p style="${s.pSmall};margin-top:16px">Alle Preise in EUR netto zzgl. gesetzlicher Umsatzsteuer. Änderungen und Irrtümer vorbehalten.</p>
 
+        <!-- Firmenfooter -->
         <div style="margin-top:12px;padding-top:12px;border-top:1px solid #eee">
           <p style="${s.pSmall}">${COMPANY.legal}</p>
           <p style="${s.pSmall}">${COMPANY.street}, ${COMPANY.zip} ${COMPANY.city}</p>
@@ -597,17 +664,18 @@ function Totals({
 export default function Page() {
   // dynamische Kataloge
   const [hardwareCatalog, setHardwareCatalog] = useState<CatalogItem[]>(HARDWARE_FALLBACK);
-  const [setupTiers, setSetupTiers] = useState<SetupTier[]>(SETUP_TIERS_FALLBACK);
+  const [setupTiers, setSetupTiers] = useState<SetupTier[]>(SETUP_Tiers_FALLBACK as any as SetupTier[]); // TS relax (falls strict off)
 
   // CSV laden (optional)
   useEffect(() => {
+    // Hardware
     fetch("/hardware.csv", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
         const text = await r.text();
         const rows = parseCsvLines(text);
         if (rows.length < 2) return;
-        const header = rows[0].map(h => h.toLowerCase());
+        const header = rows[0].map((h) => h.toLowerCase());
         const idx = {
           sku: header.indexOf("sku"),
           name: header.indexOf("name"),
@@ -630,15 +698,16 @@ export default function Page() {
         }
         if (list.length > 0) setHardwareCatalog(list);
       })
-      .catch(() => {});
+      .catch(() => { /* fallback bleibt */ });
 
+    // Setup-Tiers
     fetch("/setup_tiers.csv", { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(String(r.status));
         const text = await r.text();
         const rows = parseCsvLines(text);
         if (rows.length < 2) return;
-        const header = rows[0].map(h => h.toLowerCase());
+        const header = rows[0].map((h) => h.toLowerCase());
         const idx = {
           minLicenses: header.indexOf("minlicenses"),
           maxLicenses: header.indexOf("maxlicenses"),
@@ -660,7 +729,7 @@ export default function Page() {
         }
         if (tiers.length > 0) setSetupTiers(tiers);
       })
-      .catch(() => {});
+      .catch(() => { /* fallback bleibt */ });
   }, []);
 
   // Mengen & Rabatte
@@ -670,7 +739,17 @@ export default function Page() {
   const [vatRate] = useState(0.19);
 
   // Kunde / Vertrieb
-  const [customer, setCustomer] = useState<Customer>({ salutation: "", company: "", contact: "", email: "", phone: "", street: "", zip: "", city: "", notes: "" });
+  const [customer, setCustomer] = useState<Customer>({
+    salutation: "",
+    company: "",
+    contact: "",
+    email: "",
+    phone: "",
+    street: "",
+    zip: "",
+    city: "",
+    notes: "",
+  });
   const [salesperson, setSalesperson] = useState<Salesperson>({ name: "", email: "vertrieb@xvoice-uc.de", phone: "" });
   const [salesEmail, setSalesEmail] = useState("vertrieb@xvoice-uc.de");
   const [subject, setSubject] = useState("Ihr individuelles xVoice UC Angebot");
@@ -678,7 +757,7 @@ export default function Page() {
   // XVPS automatisch
   const serviceAutoQty = useMemo(() => (qty["XVPR"] || 0) + (qty["XVDV"] || 0) + (qty["XVMO"] || 0), [qty]);
 
-  // qty/discount erweitern, wenn Hardware nachgeladen
+  // Bei dynamisch geladener Hardware qty/discount vervollständigen
   useEffect(() => {
     setQty((prev) => {
       const next = { ...prev };
@@ -697,6 +776,7 @@ export default function Page() {
     return found?.maxDiscountPct ?? 0;
   }
 
+  // Monatspositionen
   const monthlyRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of MONTHLY) {
@@ -704,6 +784,7 @@ export default function Page() {
       const q = isXVPS ? serviceAutoQty : (qty[p.sku] || 0);
       if (isXVPS && q <= 0) continue;
       if (!isXVPS && q <= 0) continue;
+
       const cap = capForSku(p.sku);
       const pct = Math.max(0, Math.min(cap, discPct[p.sku] || 0));
       const listUnit = p.price;
@@ -711,17 +792,30 @@ export default function Page() {
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
-      rows.push({ sku: p.sku, name: p.name, desc: p.desc, quantity: q, listUnit, offerUnit, listTotal, offerTotal, badgePct: Math.max(0, Math.min(100, badgePct)) });
+
+      rows.push({
+        sku: p.sku,
+        name: p.name,
+        desc: p.desc,
+        quantity: q,
+        listUnit,
+        offerUnit,
+        listTotal,
+        offerTotal,
+        badgePct: Math.max(0, Math.min(100, badgePct)),
+      });
     }
     return rows;
   }, [qty, discPct, serviceAutoQty]);
 
+  // Setup aus Tiers
   function pickSetupTier(totalCoreSeats: number): SetupTier | null {
     if (!Number.isFinite(totalCoreSeats) || totalCoreSeats <= 0) return null;
     return setupTiers.find(t => totalCoreSeats >= t.minLicenses && totalCoreSeats <= t.maxLicenses) ?? null;
   }
   const selectedSetup = useMemo(() => pickSetupTier(serviceAutoQty), [serviceAutoQty, setupTiers]);
 
+  // Hardware
   const hardwareRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     for (const p of hardwareCatalog) {
@@ -734,26 +828,55 @@ export default function Page() {
       const listTotal = listUnit * q;
       const offerTotal = offerUnit * q;
       const badgePct = listUnit > 0 ? Math.round((1 - offerUnit / listUnit) * 100) : 0;
-      rows.push({ sku: p.sku, name: p.name, desc: p.desc, quantity: q, listUnit, offerUnit, listTotal, offerTotal, badgePct: Math.max(0, Math.min(100, badgePct)) });
+
+      rows.push({
+        sku: p.sku,
+        name: p.name,
+        desc: p.desc,
+        quantity: q,
+        listUnit,
+        offerUnit,
+        listTotal,
+        offerTotal,
+        badgePct: Math.max(0, Math.min(100, badgePct)),
+      });
     }
     return rows;
   }, [qty, discPct, hardwareCatalog]);
 
+  // Einmalige Positionen (Setup zuerst)
   const oneTimeRows = useMemo(() => {
     const rows: BuiltRow[] = [];
     if (selectedSetup) {
       rows.push({
         sku: selectedSetup.sku,
         name: selectedSetup.name,
-        desc: "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
-        quantity: 1, listUnit: selectedSetup.price, offerUnit: selectedSetup.price, listTotal: selectedSetup.price, offerTotal: selectedSetup.price, badgePct: 0,
+        desc:
+          "Mit der xVoice UC Installations- und Konfigurationspauschale richten wir Ihre Umgebung vollständig ein (Benutzer, Rufnummern, Routing, Devices, Client-Profile). Die Einrichtung erfolgt remote.",
+        quantity: 1,
+        listUnit: selectedSetup.price,
+        offerUnit: selectedSetup.price,
+        listTotal: selectedSetup.price,
+        offerTotal: selectedSetup.price,
+        badgePct: 0,
       });
     }
     rows.push(...hardwareRows);
     return rows;
   }, [hardwareRows, selectedSetup]);
 
-  const offerHtml = useMemo(() => buildEmailHtml({ customer, salesperson, monthlyRows, oneTimeRows, vatRate }), [customer, salesperson, monthlyRows, oneTimeRows, vatRate]);
+  // HTML bauen
+  const offerHtml = useMemo(
+    () =>
+      buildEmailHtml({
+        customer,
+        salesperson,
+        monthlyRows,
+        oneTimeRows,
+        vatRate,
+      }),
+    [customer, salesperson, monthlyRows, oneTimeRows, vatRate]
+  );
 
   // UX
   const [sending, setSending] = useState(false);
@@ -768,7 +891,9 @@ export default function Page() {
       const blob = new Blob([offerHtml], { type: "text/html;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const w = window.open(url, "_blank", "noopener");
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 5000);
+      setTimeout(() => {
+        try { URL.revokeObjectURL(url); } catch {}
+      }, 5000);
       if (w) return;
     } catch {}
     try {
@@ -790,7 +915,9 @@ export default function Page() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => { try { URL.revokeObjectURL(url); } catch {} }, 0);
+      setTimeout(() => {
+        try { URL.revokeObjectURL(url); } catch {}
+      }, 0);
       return;
     } catch {}
     try {
@@ -858,6 +985,49 @@ export default function Page() {
     }
   }
 
+  function buildOrderPayload() {
+    return {
+      offerId: "XVO-" + Date.now(),
+      customer: {
+        company: customer.company,
+        contact: customer.contact,
+        email: customer.email,
+        phone: customer.phone,
+      },
+      salesperson,
+      monthlyRows: monthlyRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      oneTimeRows: oneTimeRows.map(r => ({
+        sku: r.sku,
+        name: r.name,
+        quantity: r.quantity,
+        unit: r.offerUnit,
+        total: r.offerTotal,
+      })),
+      vatRate,
+      createdAt: Date.now(),
+    };
+  }
+
+  function safeTokenFromPayload(payload: any) {
+    try {
+      // bevorzugt signiertes Token
+      return signOrderPayload(payload);
+    } catch (e) {
+      // Fallback ohne SECRET (z.B. Preview/Dev) – base64-url der JSON-Daten
+      const json = JSON.stringify(payload);
+      const b64 = typeof window !== "undefined"
+        ? window.btoa(unescape(encodeURIComponent(json)))
+        : Buffer.from(json, "utf8").toString("base64");
+      return `plain.${b64}.nosig`;
+    }
+  }
+
   async function handleSendEmail() {
     setSending(true);
     setError("");
@@ -868,28 +1038,14 @@ export default function Page() {
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
 
-      // Token generieren (mit Fallback, falls ORDER_SECRET fehlt)
-      let token = "";
-      try {
-        const offerId = "XVO-" + Date.now();
-        token = signOrderPayload({
-          offerId,
-          customer: { company: customer.company, contact: customer.contact, email: customer.email, phone: customer.phone },
-          salesperson,
-          monthlyRows: monthlyRows.map(r => ({ sku: r.sku, name: r.name, quantity: r.quantity, unit: r.offerUnit, total: r.offerTotal })),
-          oneTimeRows: oneTimeRows.map(r => ({ sku: r.sku, name: r.name, quantity: r.quantity, unit: r.offerUnit, total: r.offerTotal })),
-          vatRate,
-          createdAt: Date.now(),
-        });
-      } catch (e: any) {
-        // Schluckt den Fehler bewusst, damit der Versand nicht blockiert
-        console.warn("ORDER_SECRET / Token Fehler:", e);
-      }
-      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token || ""));
+      const payload = buildOrderPayload();
+      const token = safeTokenFromPayload(payload);
+      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
 
       await postJson(EMAIL_ENDPOINT, {
         meta: { subject },
-        offerHtml: htmlWithToken, // FIX: Tokenisierte Mail versenden
+        offerHtml: htmlWithToken, // <<<<<< wichtig: HTML MIT TOKEN senden
+        token,
         customer,
         monthlyRows,
         oneTimeRows,
@@ -913,9 +1069,14 @@ export default function Page() {
     setError("");
     setSendOk(false);
     try {
+      const payload = buildOrderPayload();
+      const token = safeTokenFromPayload(payload);
+      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+
       await postJson(ORDER_ENDPOINT, {
         orderIntent: true,
-        offerHtml, // hier ist das HTML nicht zwingend tokenisiert nötig
+        token,
+        offerHtml: htmlWithToken,
         customer,
         monthlyRows,
         oneTimeRows,
@@ -959,7 +1120,9 @@ export default function Page() {
           {MONTHLY.map((item) => {
             const isService = item.sku === "XVPS";
             const q = isService ? serviceAutoQty : (qty[item.sku] || 0);
-            const onQ = isService ? () => {} : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
+            const onQ = isService
+              ? () => {}
+              : (v: number) => setQty((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.floor(v)) }));
             const cap = item.maxDiscountPct ?? 0;
             const onD = (v: number) => setDiscPct((prev) => ({ ...prev, [item.sku]: Math.max(0, Math.min(cap, v)) }));
             const helper = isService ? "Anzahl = Summe aus Premium, Device & Smartphone (automatisch)" : undefined;
