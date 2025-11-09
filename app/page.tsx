@@ -7,7 +7,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Check, Download, Mail, ShoppingCart, Copy, Eye, Trash2 } from "lucide-react";
-import { signOrderPayload } from "@/lib/orderToken";
 
 /**
  * XVOICE OFFER BUILDER – Next.js App Router (Client Component)
@@ -392,7 +391,10 @@ function buildEmailHtml(params: {
         }
 
         <div style="margin-top:16px;display:flex1;gap:10px;flex-wrap:wrap">
-          <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}" style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">Jetzt verbindlich bestellen</a>
+          <a href="https://offer.xvoice-one.de/order?token={{OFFER_TOKEN}}"
+   style="display:inline-block;background:#ff4e00;color:#fff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold;">
+   Jetzt verbindlich bestellen
+</a>
           <a href="https://calendly.com/s-brandl-xvoice-uc/ruckfragen-zum-angebot" target="_blank" rel="noopener" style="${s.btnGhost}">Rückfrage zum Angebot</a>
         </div>
 
@@ -926,26 +928,63 @@ export default function Page() {
       const oList = oneTimeRows.reduce((a, r) => a + r.listTotal, 0);
       const oOffer = oneTimeRows.reduce((a, r) => a + r.offerTotal, 0);
 
-      const payload = buildOrderPayload();
-      const token = safeTokenFromPayload(payload);
-      const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+    const offerId = "XVO-" + Date.now();
+const orderPayload = {
+  offerId,
+  customer: {
+    company: customer.company,
+    contact: customer.contact,
+    email: customer.email,
+    phone: customer.phone,
+  },
+  salesperson,
+  monthlyRows: monthlyRows.map(r => ({
+    sku: r.sku,
+    name: r.name,
+    quantity: r.quantity,
+    unit: r.offerUnit,
+    total: r.offerTotal,
+  })),
+  oneTimeRows: oneTimeRows.map(r => ({
+    sku: r.sku,
+    name: r.name,
+    quantity: r.quantity,
+    unit: r.offerUnit,
+    total: r.offerTotal,
+  })),
+  vatRate,
+  createdAt: Date.now(),
+};
 
-      await postJson(EMAIL_ENDPOINT, {
-        meta: { subject },
-        offerHtml: htmlWithToken, // wichtig: HTML MIT TOKEN
-        token,
-        customer,
-        // Für interne Auswertung kannst du beides mitschicken,
-        // aber nicht typisieren, um TS-Konflikte zu vermeiden:
-        monthlyRows,
-        oneTimeRows,
-        totals: {
-          monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
-          oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
-        },
-        salesperson, // hier unkritisch, nicht im Token
-        recipients: [customer.email, salesEmail].filter(Boolean),
-      });
+// 2) Serverseitig signieren (gleicher Endpoint wie ORDER_ENDPOINT)
+const signRes = await fetch("/api/place-order", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ signOnly: true, payload: orderPayload }),
+});
+if (!signRes.ok) {
+  throw new Error(`Signierfehler: ${await signRes.text()}`);
+}
+const { token } = await signRes.json();
+
+// 3) Token in HTML einsetzen
+const htmlWithToken = offerHtml.replaceAll("{{OFFER_TOKEN}}", encodeURIComponent(token));
+
+// 4) E-Mail mit tokenisierter HTML senden
+await postJson(EMAIL_ENDPOINT, {
+  meta: { subject },
+  offerHtml: htmlWithToken,
+  customer,
+  monthlyRows,
+  oneTimeRows,
+  totals: {
+    monthly: { netList: mList, netOffer: mOffer, vat: mOffer * vatRate, gross: mOffer * (1 + vatRate) },
+    oneTime: { netList: oList, netOffer: oOffer, vat: oOffer * vatRate, gross: oOffer * (1 + vatRate) },
+  },
+  salesperson,
+  recipients: [customer.email, salesEmail].filter(Boolean),
+});
+// ...
       setSendOk(true);
     } catch (e: any) {
       setError(String(e?.message || e));
