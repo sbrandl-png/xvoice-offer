@@ -1,17 +1,11 @@
+// app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-/* ---------- JSON helpers ---------- */
-const ok = (data: Record<string, unknown> = {}) =>
-  NextResponse.json({ ok: true, ...data }, { status: 200 });
+/** ---------- helpers ---------- */
+const ok  = (data: Record<string, unknown> = {}) => NextResponse.json({ ok: true,  ...data }, { status: 200 });
 const err = (status: number, message: string, extra?: Record<string, unknown>) =>
   NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
 
-/* ---------- submit tolerant (Default: true) ---------- */
-function isTruthySubmit(v: unknown) {
-  return v === undefined || v === null || v === true || v === "true" || v === 1 || v === "1";
-}
-
-/* ---------- token decoding (json or base64url(json)) ---------- */
 function base64UrlToString(b64url: string): string {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
   const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
@@ -20,167 +14,99 @@ function base64UrlToString(b64url: string): string {
 function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: false; error: string } {
   try { return { ok: true, data: JSON.parse(raw) }; } catch (e: any) { return { ok: false, error: e?.message || "JSON parse error" }; }
 }
-function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
-  if (!token || typeof token !== "string") return { ok: false, error: "Leerer oder ungültiger Token." };
+function decodeTokenMaybe(token?: string) {
+  if (!token || typeof token !== "string") return { ok: false as const, error: "no token" };
   if (token.trim().startsWith("{")) {
-    const p = safeParseJSON(token); if (p.ok) return { ok: true, data: p.data };
+    const p = safeParseJSON(token); if (p.ok) return { ok: true as const, data: p.data };
   }
   try {
     const raw = base64UrlToString(token);
-    const p = safeParseJSON(raw); if (p.ok) return { ok: true, data: p.data };
+    const p = safeParseJSON(raw); if (p.ok) return { ok: true as const, data: p.data };
   } catch {}
-  return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
+  return { ok: false as const, error: "unsupported token" };
 }
 
-/* ---------- Types ---------- */
 type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
 type Customer = { company?: string; contact?: string; email?: string; phone?: string };
+type Order = { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number };
 
-/* ---------- Deep utilities ---------- */
-function* walk(obj: any, path: string[] = []): Generator<{ key: string; value: any; path: string[] }> {
-  if (!obj || typeof obj !== "object") return;
-  for (const k of Object.keys(obj)) {
-    const v = (obj as any)[k];
-    yield { key: k, value: v, path: [...path, k] };
-    if (v && typeof v === "object") yield* walk(v, [...path, k]);
-  }
-}
-function first<T>(arr: T[] | undefined): T | undefined { return Array.isArray(arr) && arr.length ? arr[0] : undefined; }
-
-/* ---------- Heuristiken: offerId / vat / rows ---------- */
-function findOfferId(input: any): string | undefined {
-  const preferred = ["offerId", "offerID", "angebotId", "angebotID", "orderId", "id"];
-  for (const { key, value } of walk(input)) {
-    if (typeof value === "string") {
-      if (preferred.includes(key)) return value;
-      const kl = key.toLowerCase();
-      if (kl.includes("offer") && kl.includes("id")) return value;
-      if (key === "id" && value.length >= 5) return value;
-    }
-  }
-  if (input?.offer?.id && typeof input.offer.id === "string") return input.offer.id;
-  return undefined;
-}
-function findVat(input: any): number | undefined {
-  const candidates: number[] = [];
-  for (const { key, value } of walk(input)) {
-    if (typeof value === "number") {
-      const kl = key.toLowerCase();
-      if (["vat", "vatrate", "mwst", "ust", "tax", "taxrate", "vat_percent", "vatpercentage"].some(s => kl.includes(s))) {
-        candidates.push(value);
-      }
-    }
-  }
-  const norm = (v: number) => (v > 1.01 ? v / 100 : v); // 19 -> 0.19
-  return first(candidates.map(norm));
-}
-function asNumber(n: any, fallback = 0): number {
-  if (typeof n === "number") return n;
-  if (typeof n === "string") {
-    const f = Number(n.replace(",", "."));
-    return Number.isFinite(f) ? f : fallback;
-  }
-  return fallback;
-}
-function mapRowLike(x: any): OrderRow | undefined {
+const asNum = (v: any, d = 0) => {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") { const n = Number(v.replace(",", ".")); return Number.isFinite(n) ? n : d; }
+  return d;
+};
+const mapRow = (x: any): OrderRow | undefined => {
   if (!x || typeof x !== "object") return undefined;
-  const sku = x.sku ?? x.code ?? x.itemCode ?? x.article ?? x.productId ?? x.productCode ?? "";
+  const sku = x.sku ?? x.code ?? x.itemCode ?? x.productCode ?? x.article ?? "";
   const name = x.name ?? x.title ?? x.description ?? x.bezeichnung ?? "";
-  const quantity = asNumber(x.quantity ?? x.qty ?? x.menge ?? 1, 1);
-  const unit = asNumber(x.unit ?? x.price ?? x.unitPrice ?? x.einzelpreis ?? 0, 0);
-  const totalRaw = x.total ?? x.sum ?? x.lineTotal ?? x.gesamt ?? undefined;
-  const total = totalRaw != null ? asNumber(totalRaw) : undefined;
+  const quantity = asNum(x.quantity ?? x.qty ?? x.menge ?? 1, 1);
+  const unit = asNum(x.unit ?? x.unitPrice ?? x.price ?? x.einzelpreis ?? 0, 0);
+  const total = x.total != null ? asNum(x.total) : undefined;
   if (!sku || !name) return undefined;
   return { sku: String(sku), name: String(name), quantity, unit, total };
-}
-function looksLikeRowArray(a: any): boolean {
-  return Array.isArray(a) && a.length > 0 && typeof a[0] === "object";
-}
-function findRowArrays(input: any): { monthly?: OrderRow[]; oneTime?: OrderRow[] } {
-  const monthlyKeys = ["monthly", "recurring", "monthlyRows", "abo", "mrc", "monatlich"];
-  const oneTimeKeys = ["oneTime", "setup", "oneTimeRows", "otc", "einmalig"];
-  let monthly: OrderRow[] | undefined;
-  let oneTime: OrderRow[] | undefined;
+};
 
-  for (const { key, value, path } of walk(input)) {
-    if (looksLikeRowArray(value)) {
-      const k = key.toLowerCase();
-      const p = path.map(s => s.toLowerCase()).join(".");
-      const arr = (value as any[]).map(mapRowLike).filter(Boolean) as OrderRow[];
-      if (!arr.length) continue;
-      if (!monthly && (monthlyKeys.some(m => k.includes(m) || p.includes(m)))) monthly = arr;
-      else if (!oneTime && (oneTimeKeys.some(m => k.includes(m) || p.includes(m)))) oneTime = arr;
-    }
-  }
-  if (!monthly || !oneTime) {
-    const allCandidates: OrderRow[][] = [];
-    for (const { value } of walk(input)) {
-      if (looksLikeRowArray(value)) {
-        const arr = (value as any[]).map(mapRowLike).filter(Boolean) as OrderRow[];
-        if (arr.length) allCandidates.push(arr);
-      }
-    }
-    if (!monthly) monthly = first(allCandidates);
-    if (!oneTime) {
-      const second = allCandidates.find(a => a !== monthly);
-      oneTime = second ?? [];
-    }
-  }
-  return { monthly, oneTime };
-}
+function normalize(inputRaw: any): { ok: true; data: Order } | { ok: false; error: string; missing: string[]; preview?: any } {
+  const input = inputRaw ?? {};
 
-/* ---------- Normalisierung (robust) ---------- */
-function normalizeOrderPayload(input: any):
-  | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number } }
-  | { ok: false; error: string; missing?: string[]; receivedPreview?: any } {
+  // offerId
+  const offerId =
+    (typeof input.offerId === "string" && input.offerId) ? input.offerId :
+    (typeof input.offer?.id === "string" && input.offer.id) ? input.offer.id :
+    (typeof input.id === "string" && input.id.length >= 5) ? input.id : undefined;
 
-  const offerIdMaybe = findOfferId(input);
-  const vatRateMaybe = findVat(input);
-  const rows = findRowArrays(input);
+  // rows
+  const monthlyCandidate = input.monthlyRows ?? input.monthly ?? input.recurring;
+  const oneTimeCandidate = input.oneTimeRows ?? input.oneTime ?? input.setup;
+  const monthlyRows = Array.isArray(monthlyCandidate) ? (monthlyCandidate.map(mapRow).filter(Boolean) as OrderRow[]) : undefined;
+  const oneTimeRows = Array.isArray(oneTimeCandidate) ? (oneTimeCandidate.map(mapRow).filter(Boolean) as OrderRow[]) : [];
 
-  const customer: Customer = {
-    company: input?.customer?.company ?? input?.company ?? input?.kunde ?? input?.customerName,
-    contact: input?.customer?.contact ?? input?.contact ?? input?.ansprechpartner,
-    email:   input?.customer?.email   ?? input?.email,
-    phone:   input?.customer?.phone   ?? input?.phone   ?? input?.telefon,
-  };
+  // vat
+  let vatRate =
+    typeof input.vatRate === "number" ? input.vatRate :
+    (typeof input.vat === "number" ? input.vat : undefined);
+  if (typeof vatRate === "number" && vatRate > 1.01) vatRate = vatRate / 100; // 19 -> 0.19
 
   const missing: string[] = [];
-  if (!offerIdMaybe) missing.push("offerId");
-  if (!rows.monthly || rows.monthly.length === 0) missing.push("monthlyRows (oder monthly/recurring)");
-  if (!rows.oneTime) missing.push("oneTimeRows (oder oneTime/setup)");
-  if (typeof vatRateMaybe !== "number") missing.push("vatRate (oder vat)");
+  if (!offerId) missing.push("offerId");
+  if (!monthlyRows || monthlyRows.length === 0) missing.push("monthlyRows (oder monthly/recurring)");
+  if (!oneTimeRows) missing.push("oneTimeRows (oder oneTime/setup)");
+  if (typeof vatRate !== "number") missing.push("vatRate (oder vat)");
 
   if (missing.length) {
-    const preview = JSON.stringify(input ?? {}, (_k, v) => (typeof v === "string" && v.length > 120 ? v.slice(0, 120) + "…" : v), 2);
-    return { ok: false, error: "Orderdaten unvollständig/ungültig", missing, receivedPreview: preview.slice(0, 2000) };
+    const preview = JSON.stringify(input, (_k, v) => (typeof v === "string" && v.length > 120 ? v.slice(0, 120) + "…" : v), 2);
+    return { ok: false, error: "Orderdaten unvollständig/ungültig", missing, preview: preview.slice(0, 1500) };
   }
 
-  // Ab hier garantiert vorhanden -> Non-Null + explizite Typen
-  const offerId: string = offerIdMaybe!;
-  const vatRate: number = vatRateMaybe!;
-  const monthlyRows: OrderRow[] = rows.monthly!;
-  const oneTimeRows: OrderRow[] = rows.oneTime ?? [];
+  const customer: Customer = {
+    company: input.customer?.company ?? input.company ?? input.customerName,
+    contact: input.customer?.contact ?? input.contact ?? input.ansprechpartner,
+    email:   input.customer?.email   ?? input.email,
+    phone:   input.customer?.phone   ?? input.phone,
+  };
 
   return {
     ok: true,
-    data: { offerId, customer, monthlyRows, oneTimeRows, vatRate, createdAt: input?.createdAt },
+    data: {
+      offerId: offerId!,                       // non-null ab hier sicher
+      customer,
+      monthlyRows: monthlyRows!,               // non-null
+      oneTimeRows,                             // ggf. leeres Array
+      vatRate: vatRate!,                       // non-null
+      createdAt: input.createdAt,
+    },
   };
 }
 
-/* ---------- HTML Mail ---------- */
-function renderEmailHtml(
-  title: string,
-  order: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number }
-) {
+function renderEmailHtml(title: string, order: Order) {
   const money = (n: number) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
   const sum = (rows: OrderRow[]) => rows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
+  const tr = (r: OrderRow) =>
+    `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
 
   const monthlyNet = sum(order.monthlyRows);
   const oneTimeNet = sum(order.oneTimeRows);
-
-  const tr = (r: OrderRow) =>
-    `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
+  const gross = (n: number) => money(n * (1 + order.vatRate));
 
   return `
   <div style="font-family:Inter,Arial,sans-serif;line-height:1.55;color:#111">
@@ -205,15 +131,15 @@ function renderEmailHtml(
     </table>
     <p style="margin:16px 0 0 0">
       <strong>USt.-Satz:</strong> ${(order.vatRate * 100).toFixed(0)} %<br/>
-      <strong>Monatlich brutto:</strong> ${money(monthlyNet * (1 + order.vatRate))}<br/>
-      <strong>Einmalig brutto:</strong> ${money(oneTimeNet * (1 + order.vatRate))}
+      <strong>Monatlich brutto:</strong> ${gross(monthlyNet)}<br/>
+      <strong>Einmalig brutto:</strong> ${gross(oneTimeNet)}
     </p>
     <p style="margin:20px 0 0 0;color:#555">Automatisch erzeugt durch das xVoice Angebots-/Bestellsystem.</p>
   </div>`;
 }
 
-/* ---------- Resend Versand ---------- */
-async function sendEmailsViaResend(params: { subject: string; html: string; toList: string[]; from?: string }) {
+/** ---------- Resend Versand ---------- */
+async function sendEmailsViaResend(subject: string, html: string, toList: string[], from = "vertrieb@xvoice-uc.de") {
   const results: Array<{ to: string; ok: boolean; error?: string }> = [];
   try {
     const mod: any = await import("resend").catch(() => null);
@@ -222,11 +148,9 @@ async function sendEmailsViaResend(params: { subject: string; html: string; toLi
     if (!apiKey) return { ok: false, reason: "RESEND_API_KEY nicht gesetzt.", results };
 
     const resend = new mod.Resend(apiKey);
-    const from = params.from || "vertrieb@xvoice-uc.de";
-
-    for (const to of params.toList.filter(Boolean)) {
+    for (const to of toList.filter(Boolean)) {
       try {
-        const { error } = await resend.emails.send({ from, to, subject: params.subject, html: params.html });
+        const { error } = await resend.emails.send({ from, to, subject, html });
         results.push(error ? { to, ok: false, error: String(error) } : { to, ok: true });
       } catch (e: any) {
         results.push({ to, ok: false, error: e?.message || String(e) });
@@ -239,58 +163,41 @@ async function sendEmailsViaResend(params: { subject: string; html: string; toLi
   }
 }
 
-/* ---------- ROUTE ---------- */
+/** ---------- ROUTE ---------- */
 export async function POST(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const qsSubmit = url.searchParams.get("submit");
-
     let body: any = {};
     try { body = await req.json(); } catch { body = {}; }
 
-    // submit tolerant (Default true)
-    const submitRaw = body?.submit ?? qsSubmit;
-    if (!isTruthySubmit(submitRaw)) return err(400, "submit muss truthy sein (true/'true'/1).");
+    // 1) Payload beziehen: token oder direkte Felder
+    let rawOrder: any = undefined;
+    const token = body?.token as string | undefined;
+    const decoded = decodeTokenMaybe(token);
+    rawOrder = decoded.ok ? decoded.data : (body?.order ?? body);
 
-    // Token ODER direkte Orderdaten
-    const token: string | undefined = body?.token || undefined;
-    let rawOrder: any;
-    if (token) {
-      const dec = decodeOrderToken(token);
-      if (!dec.ok) return err(400, "Token ungültig/unsupported.", { reason: dec.error });
-      rawOrder = dec.data;
-    } else {
-      rawOrder = body?.order ?? body;
-    }
-
-    // Normalisieren
-    const norm = normalizeOrderPayload(rawOrder);
-    if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig", { missing: norm.missing, receivedPreview: norm.receivedPreview });
-
+    // 2) Normalisieren & validieren
+    const norm = normalize(rawOrder);
+    if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig", { missing: norm.missing, preview: norm.preview });
     const order = norm.data;
 
-    // Empfänger
+    // 3) Empfänger aufbauen
     const recipients = new Set<string>();
     recipients.add("vertrieb@xvoice-uc.de");
-    const salesEmail: string | undefined = body?.salesEmail || body?.sales?.email || undefined;
-    if (salesEmail) recipients.add(salesEmail);
+    if (body?.salesEmail) recipients.add(String(body.salesEmail));
     if (order.customer?.email) recipients.add(order.customer.email);
 
-    // Versand
+    // 4) E-Mail versenden
     const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
     const html = renderEmailHtml("Auftragsbestätigung", order);
-    const mailResult = await sendEmailsViaResend({
-      subject,
-      html,
-      toList: Array.from(recipients),
-      from: "vertrieb@xvoice-uc.de",
-    });
+    const emailResult = await sendEmailsViaResend(subject, html, Array.from(recipients));
 
-    return ok({ message: "Bestellung übernommen.", offerId: order.offerId, emails: mailResult, usedToken: Boolean(token) });
+    return ok({ message: "Bestellung übernommen.", offerId: order.offerId, emails: emailResult, usedToken: decoded.ok });
   } catch (e: any) {
     console.error("[place-order] Unhandled error:", e);
     return err(500, "Interner Fehler beim Verarbeiten der Bestellung.");
   }
 }
 
-export async function GET() { return err(405, "Method Not Allowed"); }
+export async function GET() {
+  return err(405, "Method Not Allowed");
+}
