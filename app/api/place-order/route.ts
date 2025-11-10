@@ -1,206 +1,266 @@
 // app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
+export const runtime = "nodejs";
 
-// ===== Types =====
-type OrderRow = {
-  sku: string;
-  name: string;
-  quantity: number;
-  unit: number;   // Netto-Einzelpreis
-  total: number;  // Netto-Zeilenpreis
-  desc?: string;
-};
-type OrderCustomer = {
-  company?: string;
-  contact?: string;
-  email?: string;
-  phone?: string;
-  street?: string;
-  zip?: string;
-  city?: string;
-};
-type OrderPayload = {
-  offerId: string;
-  customer: OrderCustomer;
-  monthlyRows: OrderRow[];
-  oneTimeRows: OrderRow[];
-  vatRate: number;   // z.B. 0.19
-  createdAt: number; // ms epoch
-  exp?: number;      // optional, sec epoch
-};
+/* ---------------- response helpers ---------------- */
+const ok = (data: Record<string, unknown> = {}) =>
+  NextResponse.json({ ok: true, ...data }, { status: 200 });
+const err = (status: number, message: string, extra?: Record<string, unknown>) =>
+  NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
 
-// ===== Helpers =====
-const eur = (n: number) =>
-  new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(Number(n) || 0);
-
-function decodeJwtLoose(token: string): any | null {
-  try {
-    const parts = String(token).split(".");
-    if (parts.length < 2) return null;
-    const payloadB64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
-    const json = Buffer.from(payloadB64, "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
+/* --------------- tolerant submit check ------------- */
+function isTruthySubmit(v: unknown) {
+  if (v === true || v === 1 || v === "1") return true;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "on" || s === "yes" || s === "ja" || s === "y";
   }
+  return false;
 }
 
-// tolerantes Normalisieren (akzeptiert Aliasse)
-function normalize(p: any): OrderPayload | null {
-  if (!p || typeof p !== "object") return null;
+/* ----------------- robust body reader -------------- */
+async function readBodyObject(req: NextRequest): Promise<Record<string, any>> {
+  // JSON
+  try {
+    const data = await req.json();
+    if (data && typeof data === "object") return data;
+  } catch {}
+  // FormData
+  try {
+    const form = await req.formData();
+    const obj: Record<string, any> = {};
+    for (const [k, v] of form.entries()) obj[k] = v;
+    if (Object.keys(obj).length) return obj;
+  } catch {}
+  // Raw text -> JSON
+  try {
+    const raw = await req.text();
+    if (raw?.trim()) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {}
+    }
+  } catch {}
+  return {};
+}
 
-  const monthly =
-    Array.isArray(p.monthlyRows) ? p.monthlyRows : (p.monthly || p.recurring || []);
-  const oneTime =
-    Array.isArray(p.oneTimeRows) ? p.oneTimeRows : (p.oneTime || p.setup || []);
-  const vat =
-    typeof p.vatRate === "number" ? p.vatRate : (typeof p.vat === "number" ? p.vat : 0.19);
+/* ---------------- token decoding utils ------------- */
+function base64UrlToString(b64url: string): string {
+  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
+  const b64p = b64 + pad;
+  if (typeof (globalThis as any).atob === "function") return (globalThis as any).atob(b64p);
+  return Buffer.from(b64p, "base64").toString("utf-8");
+}
+function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: false; error: string } {
+  try { return { ok: true, data: JSON.parse(raw) }; }
+  catch (e: any) { return { ok: false, error: e?.message || "JSON parse error" }; }
+}
+function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
+  if (!token || typeof token !== "string") return { ok: false, error: "Leerer oder ungültiger Token." };
+  if (token.trim().startsWith("{")) {
+    const p = safeParseJSON(token);
+    if (p.ok) return { ok: true, data: p.data };
+  }
+  try {
+    const raw = base64UrlToString(token);
+    const p = safeParseJSON(raw);
+    if (p.ok) return { ok: true, data: p.data };
+  } catch {}
+  return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
+}
 
-  if (!p.offerId || !Array.isArray(monthly) || !Array.isArray(oneTime)) return null;
+/* --------------------------- types ----------------- */
+type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
+type Customer = { company?: string; contact?: string; email?: string; phone?: string };
+type OrderLike = {
+  offerId?: string;
+  customer?: Customer;
+  monthlyRows?: OrderRow[];
+  oneTimeRows?: OrderRow[];
+  monthly?: OrderRow[];
+  recurring?: OrderRow[];
+  oneTime?: OrderRow[];
+  setup?: OrderRow[];
+  vatRate?: number;
+  vat?: number;
+  createdAt?: number;
+  [k: string]: any;
+};
+
+/* --------------- normalize + hard narrowing -------- */
+function normalizeOrderPayload(raw: any):
+  | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number } }
+  | { ok: false; error: string; missing?: string[] } {
+  const payload: OrderLike = raw ?? {};
+
+  const monthlyRowsCand = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
+  const oneTimeRowsCand = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
+  const vatCand = typeof payload.vatRate === "number" ? payload.vatRate
+                : typeof payload.vat === "number" ? payload.vat
+                : undefined;
+
+  const missing: string[] = [];
+  if (!payload.offerId || typeof payload.offerId !== "string") missing.push("offerId");
+  if (!Array.isArray(monthlyRowsCand)) missing.push("monthlyRows (oder Alias monthly/recurring)");
+  if (!Array.isArray(oneTimeRowsCand)) missing.push("oneTimeRows (oder Alias oneTime/setup)");
+  if (typeof vatCand !== "number") missing.push("vatRate (oder Alias vat)");
+
+  if (missing.length) return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
+
+  const offerIdReq: string = payload.offerId as string;
+  const monthlyRowsReq: OrderRow[] = monthlyRowsCand as OrderRow[];
+  const oneTimeRowsReq: OrderRow[] = oneTimeRowsCand as OrderRow[];
+  const vatRateReq: number = vatCand as number;
+  const customerReq: Customer = payload.customer ?? {};
 
   return {
-    offerId: String(p.offerId),
-    customer: p.customer || {},
-    monthlyRows: monthly,
-    oneTimeRows: oneTime,
-    vatRate: vat,
-    createdAt: Number(p.createdAt || Date.now()),
-    exp: typeof p.exp === "number" ? p.exp : undefined,
+    ok: true,
+    data: {
+      offerId: offerIdReq,
+      customer: customerReq,
+      monthlyRows: monthlyRowsReq,
+      oneTimeRows: oneTimeRowsReq,
+      vatRate: vatRateReq,
+      createdAt: payload.createdAt,
+    },
   };
 }
 
-function isOrderPayload(o: any): o is OrderPayload {
-  return (
-    o &&
-    typeof o.offerId === "string" &&
-    o.customer &&
-    Array.isArray(o.monthlyRows) &&
-    Array.isArray(o.oneTimeRows) &&
-    typeof o.vatRate === "number" &&
-    typeof o.createdAt === "number"
-  );
+/* --------------------- email rendering ------------- */
+function renderEmailHtml(title: string, order: {
+  offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number;
+}) {
+  const money = (n: number) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
+  const monthlySum = order.monthlyRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
+  const otSum = order.oneTimeRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
+  const vatFactor = 1 + order.vatRate;
+  const monthlyGross = monthlySum * vatFactor;
+  const otGross = otSum * vatFactor;
+  const row = (r: OrderRow) =>
+    `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
+  return `
+  <div style="font-family:Inter,Arial,sans-serif;line-height:1.5;color:#111">
+    <h2 style="margin:0 0 12px 0">${title}</h2>
+    <p style="margin:0 0 6px 0"><strong>Vorgangsnummer:</strong> ${order.offerId}</p>
+    <p style="margin:0 0 16px 0">
+      <strong>Kunde:</strong> ${order.customer?.company ?? "-"}<br/>
+      <strong>Kontakt:</strong> ${order.customer?.contact ?? "-"}<br/>
+      <strong>E-Mail:</strong> ${order.customer?.email ?? "-"} · <strong>Telefon:</strong> ${order.customer?.phone ?? "-"}
+    </p>
+    <h3 style="margin:16px 0 8px 0">Monatliche Positionen (netto)</h3>
+    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #eee">
+      <thead><tr style="background:#f6f6f6"><th>SKU</th><th>Bezeichnung</th><th style="text-align:right">Menge</th><th style="text-align:right">Einzel</th><th style="text-align:right">Summe</th></tr></thead>
+      <tbody>${order.monthlyRows.map(row).join("")}</tbody>
+      <tfoot><tr><td colspan="4" style="text-align:right"><strong>Zwischensumme</strong></td><td style="text-align:right"><strong>${money(monthlySum)}</strong></td></tr></tfoot>
+    </table>
+    <h3 style="margin:16px 0 8px 0">Einmalige Positionen (netto)</h3>
+    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #eee">
+      <thead><tr style="background:#f6f6f6"><th>SKU</th><th>Bezeichnung</th><th style="text-align:right">Menge</th><th style="text-align:right">Einzel</th><th style="text-align:right">Summe</th></tr></thead>
+      <tbody>${order.oneTimeRows.map(row).join("")}</tbody>
+      <tfoot><tr><td colspan="4" style="text-align:right"><strong>Zwischensumme</strong></td><td style="text-align:right"><strong>${money(otSum)}</strong></td></tr></tfoot>
+    </table>
+    <p style="margin:16px 0 0 0">
+      <strong>USt.-Satz:</strong> ${(order.vatRate * 100).toFixed(0)} %<br/>
+      <strong>Monatlich brutto:</strong> ${money(monthlyGross)}<br/>
+      <strong>Einmalig brutto:</strong> ${money(otGross)}
+    </p>
+  </div>`;
 }
 
-function signToken(payload: object): string {
-  const header = { alg: "HS256", typ: "JWT" };
-  const b64url = (buf: Buffer | string) =>
-    Buffer.from(buf).toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-
-  const secret = process.env.JWT_SECRET || "";
-  const h = b64url(JSON.stringify(header));
-  const p = b64url(JSON.stringify(payload));
-
-  if (!secret) return `${h}.${p}.`;
-
-  const data = `${h}.${p}`;
-  const sig = crypto.createHmac("sha256", secret).update(data).digest("base64")
-    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-  return `${data}.${sig}`;
-}
-
-// ===== API =====
-export async function POST(req: NextRequest) {
-  let body: any;
+/* ---------------------- resend (optional) ----------- */
+async function sendViaResend(params: { subject: string; html: string; toList: string[]; from?: string; }) {
+  const results: Array<{ to: string; ok: boolean; error?: string }> = [];
   try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Body fehlt oder ist kein gültiges JSON." }, { status: 400 });
-  }
+    const mod: any = await import("resend").catch(() => null);
+    if (!mod || !mod.Resend) return { ok: false, reason: 'Resend SDK nicht verfügbar (Package "resend" fehlt).', results };
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) return { ok: false, reason: "RESEND_API_KEY nicht gesetzt.", results };
+    const resend = new mod.Resend(apiKey);
+    const from = params.from || "vertrieb@xvoice-uc.de";
 
-  const { submit, token, order, signer, accept, salesEmail } = body || {};
-const submitFlag = (typeof submit === "undefined") ? true : Boolean(submit);
-if (!submitFlag) {
-  return NextResponse.json({ ok: false, error: "Bestellung nicht bestätigt (submit=false)." }, { status: 400 });
+    for (const to of params.toList.filter(Boolean)) {
+      try {
+        const { error } = await resend.emails.send({ from, to, subject: params.subject, html: params.html });
+        if (error) results.push({ to, ok: false, error: String(error) });
+        else results.push({ to, ok: true });
+      } catch (e: any) {
+        results.push({ to, ok: false, error: e?.message || String(e) });
+      }
+    }
+    const anyFailed = results.some(r => !r.ok);
+    return anyFailed ? { ok: false, reason: "Teilweise fehlgeschlagen.", results } : { ok: true, results };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message || "Unbekannter Fehler beim Resend-Versand.", results };
+  }
 }
-  if (accept === false) {
-    return NextResponse.json({ ok: false, error: "Bestätigung (AGB/Beauftragung) nicht erteilt." }, { status: 400 });
+
+/* ------------------------------- POST --------------------------- */
+export async function POST(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const qs = Object.fromEntries(url.searchParams.entries());
+    const body = await readBodyObject(req);
+
+    // *** WICHTIG: Für POST gilt submit automatisch als true. ***
+    const submitHeader = req.headers.get("x-submit");
+    const submitRaw = body.submit ?? qs.submit ?? submitHeader ?? true;
+
+    if (!isTruthySubmit(submitRaw)) {
+      // Diese Zeile wird bei POST praktisch nie greifen, außer du setzt explizit "false".
+      return err(400, "submit==true erforderlich.");
+    }
+
+    const token: string = (body.token ?? qs.token ?? "") as string;
+    if (!token) return err(400, "Fehlender Token.");
+
+    const decoded = decodeOrderToken(token);
+    if (!decoded.ok) return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
+
+    const norm = normalizeOrderPayload(decoded.data);
+    if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
+
+    const order = norm.data;
+    const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
+    const html = renderEmailHtml("Auftragsbestätigung", order);
+
+    const recipients = new Set<string>();
+    recipients.add("vertrieb@xvoice-uc.de");
+    if (body.salesEmail) recipients.add(String(body.salesEmail));
+    if (order.customer?.email) recipients.add(order.customer.email);
+
+    const emails = await sendViaResend({
+      subject,
+      html,
+      toList: Array.from(recipients),
+      from: "vertrieb@xvoice-uc.de",
+    });
+
+    return ok({ message: "Bestellung übernommen.", offerId: order.offerId, emails });
+  } catch (e: any) {
+    console.error("[place-order] Unhandled error:", e);
+    return err(500, "Interner Fehler beim Verarbeiten der Bestellung.");
   }
+}
 
-  // 1) Kandidat ermitteln (roh), dann normalisieren
-  const candidate: any = order ?? (token ? decodeJwtLoose(token) : null);
-  const normalized = normalize(candidate);
-
-  if (!normalized) {
-    // Detail-Feedback auf Basis des ROH-Objekts (nicht 'normalized')
-    const p: any = candidate ?? {};
-    const reasons: string[] = [];
-    if (typeof p.offerId !== "string") reasons.push("offerId");
-    const monthly = Array.isArray(p.monthlyRows) ? p.monthlyRows : (p.monthly || p.recurring);
-    const oneTime = Array.isArray(p.oneTimeRows) ? p.oneTimeRows : (p.oneTime || p.setup);
-    if (!Array.isArray(monthly)) reasons.push("monthlyRows (oder Alias monthly/recurring)");
-    if (!Array.isArray(oneTime)) reasons.push("oneTimeRows (oder Alias oneTime/setup)");
-    if (!(typeof p.vatRate === "number" || typeof p.vat === "number")) reasons.push("vatRate (oder Alias vat)");
-    return NextResponse.json(
-      { ok: false, error: `Orderdaten unvollständig/ungültig: ${reasons.join(", ")}` },
-      { status: 400 }
-    );
+/* ------------------------------- GET (Test) --------------------- */
+// /api/place-order?submit=1&token=...
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const token = url.searchParams.get("token") || "";
+  const submitHeader = req.headers.get("x-submit");
+  const submit = url.searchParams.get("submit") ?? submitHeader ?? undefined;
+  if (!isTruthySubmit(submit ?? (token ? true : undefined))) {
+    return err(400, "submit==true erforderlich (GET).");
   }
+  if (!token) return err(400, "Fehlender Token (GET).");
 
-  // 2) Optionales Ablauf prüfen
-  if (normalized.exp && Math.floor(Date.now() / 1000) > Number(normalized.exp)) {
-    return NextResponse.json({ ok: false, error: "Token/Angebot abgelaufen." }, { status: 400 });
-  }
+  const decoded = decodeOrderToken(token);
+  if (!decoded.ok) return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
 
-  // 3) Finales Schema absichern
-  if (!isOrderPayload(normalized)) {
-    return NextResponse.json({ ok: false, error: "Orderdaten fehlerhaft (Schema)." }, { status: 400 });
-  }
+  const norm = normalizeOrderPayload(decoded.data);
+  if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
 
-  const payload = normalized;
-
-  // 4) Interne Referenz
-  const orderRef = `XVO-${payload.offerId}-${Date.now().toString(36).toUpperCase()}`;
-
-  // 5) Summen
-  const sum = (rows: OrderRow[]) => rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
-  const net = sum(payload.monthlyRows) + sum(payload.oneTimeRows);
-  const vat = net * payload.vatRate;
-  const gross = net + vat;
-
-  // 6) E-Mail-Empfänger
-  const recipients = [
-    payload.customer.email,
-    salesEmail || undefined,
-    "vertrieb@xvoice-uc.de",
-  ].filter(Boolean) as string[];
-
-  const subject = `Auftragsbestätigung – ${payload.customer.company || payload.offerId} – ${orderRef}`;
-  const text = [
-    `Vielen Dank für Ihre Bestellung.`,
-    ``,
-    `Referenz: ${orderRef}`,
-    `Angebot: ${payload.offerId}`,
-    ``,
-    `Firma: ${payload.customer.company || "-"}`,
-    `Kontakt: ${payload.customer.contact || "-"}`,
-    `E-Mail: ${payload.customer.email || "-"}`,
-    `Telefon: ${payload.customer.phone || "-"}`,
-    ``,
-    `Gesamt netto: ${eur(net)}`,
-    `zzgl. USt.:   ${eur(vat)}`,
-    `Gesamt brutto:${eur(gross)}`,
-    ``,
-    `Kick-off-Gespräch buchen:`,
-    `https://calendly.com/s-brandl-xvoice-uc/xvoice-uc-kickoff-meeting`,
-  ].join("\n");
-
-  // 7) Versand (Resend/SMTP) – Stub
-  const key = process.env.RESEND_API_KEY;
-  if (key) {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: process.env.MAIL_FROM || "xVoice UC <no-reply@xvoice-uc.de>",
-        to: recipients,
-        subject,
-        text,
-      }),
-    }).catch(() => {});
-  } else {
-    console.log("[PLACE-ORDER] Mail (FAKE):", { recipients, subject, text });
-  }
-
-  return NextResponse.json({ ok: true, orderRef });
+  return ok({ message: "GET-Test erfolgreich", offerId: norm.data.offerId });
 }
