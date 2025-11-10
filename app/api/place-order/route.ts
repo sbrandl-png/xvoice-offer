@@ -1,27 +1,34 @@
+// app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
-/** ---------- Helper: JSON/Responses ---------- */
+// Garantiert Node-Laufzeit (nicht Edge), damit Resend & Buffer verfügbar sind
+export const runtime = "nodejs";
+
+/* ---------------------------- Helpers: Responses --------------------------- */
 const ok = (data: Record<string, unknown> = {}) =>
   NextResponse.json({ ok: true, ...data }, { status: 200 });
 
 const err = (status: number, message: string, extra?: Record<string, unknown>) =>
   NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
 
-/** ---------- Helper: submit tolerant prüfen ---------- */
+/* -------------------------- Helper: submit tolerant ------------------------ */
 function isTruthySubmit(v: unknown) {
   return v === true || v === "true" || v === 1 || v === "1";
 }
 
-/** ---------- Helper: Token -> Objekt (JSON oder base64url(JSON)) ---------- */
+/* ------------------------- Helper: Token Decoding -------------------------- */
 function base64UrlToString(b64url: string): string {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
   const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
   const b64p = b64 + pad;
-  if (typeof atob === "function") return atob(b64p);
+  // atob im Browser, Buffer im Node
+  if (typeof (globalThis as any).atob === "function") return (globalThis as any).atob(b64p);
   return Buffer.from(b64p, "base64").toString("utf-8");
 }
 
-function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: false; error: string } {
+function safeParseJSON<T = any>(raw: string):
+  | { ok: true; data: T }
+  | { ok: false; error: string } {
   try {
     const data = JSON.parse(raw);
     return { ok: true, data };
@@ -30,23 +37,27 @@ function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: fals
   }
 }
 
-function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
+function decodeOrderToken(token: string):
+  | { ok: true; data: any }
+  | { ok: false; error: string } {
   if (!token || typeof token !== "string") {
     return { ok: false, error: "Leerer oder ungültiger Token." };
   }
+  // Plain JSON im Token?
   if (token.trim().startsWith("{")) {
     const p = safeParseJSON(token);
     if (p.ok) return { ok: true, data: p.data };
   }
+  // base64url(JSON)
   try {
     const raw = base64UrlToString(token);
     const p = safeParseJSON(raw);
     if (p.ok) return { ok: true, data: p.data };
-  } catch {}
+  } catch {/* ignore */}
   return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
 }
 
-/** ---------- Types ---------- */
+/* --------------------------------- Types ---------------------------------- */
 type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
 type Customer = { company?: string; contact?: string; email?: string; phone?: string };
 
@@ -60,29 +71,35 @@ type OrderLike = {
   oneTime?: OrderRow[];
   setup?: OrderRow[];
   vatRate?: number;
-  vat?: number;
+  vat?: number;        // Alias
   createdAt?: number;
   [k: string]: any;
 };
 
-/** ---------- Normalisierung mit hartem Narrowing ---------- */
-function normalizeOrderPayload(raw: any): {
-  ok: true;
-  data: {
-    offerId: string;
-    customer: Customer;
-    monthlyRows: OrderRow[];
-    oneTimeRows: OrderRow[];
-    vatRate: number;
-    createdAt?: number;
-  };
-} | { ok: false; error: string; missing?: string[] } {
+/* ------------------- Normalisierung + hartes Narrowing -------------------- */
+function normalizeOrderPayload(raw: any):
+  | {
+      ok: true;
+      data: {
+        offerId: string;
+        customer: Customer;
+        monthlyRows: OrderRow[];
+        oneTimeRows: OrderRow[];
+        vatRate: number;
+        createdAt?: number;
+      };
+    }
+  | { ok: false; error: string; missing?: string[] } {
   const payload: OrderLike = raw ?? {};
+
   const monthlyRowsCand = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
   const oneTimeRowsCand = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
   const vatCand =
-    typeof payload.vatRate === "number" ? payload.vatRate :
-    (typeof payload.vat === "number" ? payload.vat : undefined);
+    typeof payload.vatRate === "number"
+      ? payload.vatRate
+      : typeof payload.vat === "number"
+      ? payload.vat
+      : undefined;
 
   const missing: string[] = [];
   if (typeof payload.offerId !== "string" || !payload.offerId) missing.push("offerId");
@@ -94,7 +111,7 @@ function normalizeOrderPayload(raw: any): {
     return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
   }
 
-  // Ab hier garantiert belegt -> auf lokale, streng getypte Variablen kopieren
+  // Ab hier garantiert korrekt typisiert
   const monthlyRowsReq: OrderRow[] = monthlyRowsCand as OrderRow[];
   const oneTimeRowsReq: OrderRow[] = oneTimeRowsCand as OrderRow[];
   const vatRateReq: number = vatCand as number;
@@ -113,7 +130,7 @@ function normalizeOrderPayload(raw: any): {
   };
 }
 
-/** ---------- HTML E-Mail ---------- */
+/* ------------------------------ Email HTML -------------------------------- */
 function renderEmailHtml(
   title: string,
   order: {
@@ -170,8 +187,8 @@ function renderEmailHtml(
   </div>`;
 }
 
-/** ---------- Resend Versand (optional, non-blocking) ---------- */
-async function sendEmailsViaResend(params: {
+/* --------------------------- Resend (fehlertolerant) ---------------------- */
+async function sendViaResend(params: {
   subject: string;
   html: string;
   toList: string[];
@@ -198,11 +215,8 @@ async function sendEmailsViaResend(params: {
           subject: params.subject,
           html: params.html,
         });
-        if (error) {
-          results.push({ to, ok: false, error: String(error) });
-        } else {
-          results.push({ to, ok: true });
-        }
+        if (error) results.push({ to, ok: false, error: String(error) });
+        else results.push({ to, ok: true });
       } catch (e: any) {
         results.push({ to, ok: false, error: e?.message || String(e) });
       }
@@ -215,22 +229,22 @@ async function sendEmailsViaResend(params: {
   }
 }
 
-/** ---------- Route ---------- */
+/* --------------------------------- Route ---------------------------------- */
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const qsSubmit = url.searchParams.get("submit");
-    const body = await req.json().catch(() => ({} as any));
 
-    const submit = body?.submit ?? qsSubmit;
-    if (!isTruthySubmit(submit)) {
+    // Body robust lesen (JSON kann fehlen/ungültig sein)
+    let body: any = {};
+    try { body = await req.json(); } catch { body = {}; }
+
+    const submitRaw = body?.submit ?? qsSubmit ?? (body?.token ? true : undefined);
+    if (!isTruthySubmit(submitRaw)) {
       return err(400, "submit==true erforderlich.");
     }
 
-    const token: string = body?.token || "";
-    const salesEmail: string | undefined = body?.salesEmail || undefined;
-    const signer: { name?: string; email?: string } = body?.signer || {};
-
+    const token: string = body?.token || url.searchParams.get("token") || "";
     if (!token) return err(400, "Fehlender Token.");
 
     const decoded = decodeOrderToken(token);
@@ -245,15 +259,16 @@ export async function POST(req: NextRequest) {
 
     const order = norm.data;
 
+    // E-Mail vorbereiten & versenden (optional)
     const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
     const html = renderEmailHtml("Auftragsbestätigung", order);
 
     const recipients = new Set<string>();
     recipients.add("vertrieb@xvoice-uc.de");
-    if (salesEmail) recipients.add(salesEmail);
+    if (body?.salesEmail) recipients.add(String(body.salesEmail));
     if (order.customer?.email) recipients.add(order.customer.email);
 
-    const mailResult = await sendEmailsViaResend({
+    const mailResult = await sendViaResend({
       subject,
       html,
       toList: Array.from(recipients),
@@ -264,7 +279,6 @@ export async function POST(req: NextRequest) {
       message: "Bestellung übernommen.",
       offerId: order.offerId,
       emails: mailResult,
-      signer: signer?.email ? { email: signer.email, name: signer.name } : undefined,
     });
   } catch (e: any) {
     console.error("[place-order] Unhandled error:", e);
@@ -272,6 +286,24 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
-  return err(405, "Method Not Allowed");
+// Optionaler GET-Endpunkt fürs schnelle Testen via URL:
+//   /api/place-order?submit=1&token=<TOKEN>
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const submit = url.searchParams.get("submit");
+  const token = url.searchParams.get("token") || "";
+  if (!(submit === "1" || submit === "true")) {
+    return err(400, "submit==true erforderlich (GET).");
+  }
+  if (!token) return err(400, "Fehlender Token (GET).");
+
+  const decoded = decodeOrderToken(token);
+  if (!decoded.ok) {
+    return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
+  }
+  const norm = normalizeOrderPayload(decoded.data);
+  if (!norm.ok) {
+    return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
+  }
+  return ok({ message: "GET-Test erfolgreich", offerId: norm.data.offerId });
 }
