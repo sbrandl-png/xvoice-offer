@@ -14,14 +14,10 @@ function isTruthySubmit(v: unknown) {
 
 /** ---------- Helper: Token -> Objekt (JSON oder base64url(JSON)) ---------- */
 function base64UrlToString(b64url: string): string {
-  // base64url -> base64
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  // padding fix
   const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
   const b64p = b64 + pad;
-  // Browser/Edge Runtime friendly decode
   if (typeof atob === "function") return atob(b64p);
-  // Node fallback
   return Buffer.from(b64p, "base64").toString("utf-8");
 }
 
@@ -34,36 +30,24 @@ function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: fals
   }
 }
 
-/**
- * Versucht Reihenfolge:
- * 1) Token ist schon JSON-String
- * 2) Token ist Base64URL-kodierter JSON-String
- */
 function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
   if (!token || typeof token !== "string") {
     return { ok: false, error: "Leerer oder ungültiger Token." };
   }
-
-  // Fall 1: direktes JSON
   if (token.trim().startsWith("{")) {
     const p = safeParseJSON(token);
     if (p.ok) return { ok: true, data: p.data };
   }
-
-  // Fall 2: base64url(JSON)
   try {
     const raw = base64UrlToString(token);
     const p = safeParseJSON(raw);
     if (p.ok) return { ok: true, data: p.data };
-  } catch {
-    // ignore, fällt auf Fehler unten
-  }
-
+  } catch {}
   return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
 }
 
-/** ---------- Types (locker, damit Build sicher ist) ---------- */
-type OrderRow = { sku: string; name: string; quantity: number; unit: number; total: number };
+/** ---------- Types ---------- */
+type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
 type Customer = { company?: string; contact?: string; email?: string; phone?: string };
 
 type OrderLike = {
@@ -71,7 +55,6 @@ type OrderLike = {
   customer?: Customer;
   monthlyRows?: OrderRow[];
   oneTimeRows?: OrderRow[];
-  // Aliase, die wir akzeptieren und auf obige Felder mappen:
   monthly?: OrderRow[];
   recurring?: OrderRow[];
   oneTime?: OrderRow[];
@@ -82,24 +65,39 @@ type OrderLike = {
   [k: string]: any;
 };
 
-/** ---------- Normalisierung: Aliase auf Standardfelder ---------- */
+/** ---------- Normalisierung mit hartem Narrowing ---------- */
 function normalizeOrderPayload(raw: any): {
-  ok: true; data: Required<Pick<OrderLike, "offerId" | "vatRate" | "customer" | "monthlyRows" | "oneTimeRows">> & { createdAt?: number }
+  ok: true;
+  data: {
+    offerId: string;
+    customer: Customer;
+    monthlyRows: OrderRow[];
+    oneTimeRows: OrderRow[];
+    vatRate: number;
+    createdAt?: number;
+  };
 } | { ok: false; error: string; missing?: string[] } {
   const payload: OrderLike = raw ?? {};
-  const monthlyRows = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
-  const oneTimeRows = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
-  const vatRate = typeof payload.vatRate === "number" ? payload.vatRate : (typeof payload.vat === "number" ? payload.vat : undefined);
+  const monthlyRowsCand = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
+  const oneTimeRowsCand = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
+  const vatCand =
+    typeof payload.vatRate === "number" ? payload.vatRate :
+    (typeof payload.vat === "number" ? payload.vat : undefined);
 
   const missing: string[] = [];
   if (typeof payload.offerId !== "string" || !payload.offerId) missing.push("offerId");
-  if (!Array.isArray(monthlyRows)) missing.push("monthlyRows (oder Alias monthly/recurring)");
-  if (!Array.isArray(oneTimeRows)) missing.push("oneTimeRows (oder Alias oneTime/setup)");
-  if (typeof vatRate !== "number") missing.push("vatRate (oder Alias vat)");
+  if (!Array.isArray(monthlyRowsCand)) missing.push("monthlyRows (oder Alias monthly/recurring)");
+  if (!Array.isArray(oneTimeRowsCand)) missing.push("oneTimeRows (oder Alias oneTime/setup)");
+  if (typeof vatCand !== "number") missing.push("vatRate (oder Alias vat)");
 
   if (missing.length) {
     return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
   }
+
+  // Ab hier garantiert belegt -> auf lokale, streng getypte Variablen kopieren
+  const monthlyRowsReq: OrderRow[] = monthlyRowsCand as OrderRow[];
+  const oneTimeRowsReq: OrderRow[] = oneTimeRowsCand as OrderRow[];
+  const vatRateReq: number = vatCand as number;
 
   const customer: Customer = payload.customer ?? {};
   return {
@@ -107,17 +105,27 @@ function normalizeOrderPayload(raw: any): {
     data: {
       offerId: payload.offerId!,
       customer,
-      monthlyRows,
-      oneTimeRows,
-      vatRate: vatRate!,
+      monthlyRows: monthlyRowsReq,
+      oneTimeRows: oneTimeRowsReq,
+      vatRate: vatRateReq,
       createdAt: payload.createdAt,
     },
   };
 }
 
-/** ---------- HTML E-Mail: kompakte Zusammenfassung ---------- */
-function renderEmailHtml(title: string, order: Required<Pick<OrderLike, "offerId" | "vatRate" | "customer" | "monthlyRows" | "oneTimeRows">>) {
-  const money = (n: number) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
+/** ---------- HTML E-Mail ---------- */
+function renderEmailHtml(
+  title: string,
+  order: {
+    offerId: string;
+    customer: Customer;
+    monthlyRows: OrderRow[];
+    oneTimeRows: OrderRow[];
+    vatRate: number;
+  }
+) {
+  const money = (n: number) =>
+    new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
 
   const monthlySum = order.monthlyRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
   const otSum = order.oneTimeRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
@@ -162,7 +170,7 @@ function renderEmailHtml(title: string, order: Required<Pick<OrderLike, "offerId
   </div>`;
 }
 
-/** ---------- Resend Versand (optional) ---------- */
+/** ---------- Resend Versand (optional, non-blocking) ---------- */
 async function sendEmailsViaResend(params: {
   subject: string;
   html: string;
@@ -171,7 +179,6 @@ async function sendEmailsViaResend(params: {
 }) {
   const results: Array<{ to: string; ok: boolean; error?: string }> = [];
   try {
-    // dynamischer Import, damit der Build nicht scheitert, falls "resend" nicht installiert ist
     const mod: any = await import("resend").catch(() => null);
     if (!mod || !mod.Resend) {
       return { ok: false, reason: 'Resend SDK nicht verfügbar (Package "resend" fehlt).', results };
@@ -183,7 +190,6 @@ async function sendEmailsViaResend(params: {
     const resend = new mod.Resend(apiKey);
     const from = params.from || "vertrieb@xvoice-uc.de";
 
-    // Einzelversand je Empfänger → klares Ergebnis je Adresse
     for (const to of params.toList.filter(Boolean)) {
       try {
         const { error } = await resend.emails.send({
@@ -223,18 +229,15 @@ export async function POST(req: NextRequest) {
 
     const token: string = body?.token || "";
     const salesEmail: string | undefined = body?.salesEmail || undefined;
-    // signer ist optional – kann für Logging/Verbesserung genutzt werden
     const signer: { name?: string; email?: string } = body?.signer || {};
 
     if (!token) return err(400, "Fehlender Token.");
 
-    // Token decodieren
     const decoded = decodeOrderToken(token);
     if (!decoded.ok) {
       return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
     }
 
-    // Payload normalisieren
     const norm = normalizeOrderPayload(decoded.data);
     if (!norm.ok) {
       return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
@@ -242,24 +245,14 @@ export async function POST(req: NextRequest) {
 
     const order = norm.data;
 
-    // (Optional) Hier könntest du persistieren/signieren/etc.
-    // z.B. await saveOrder(order, signer)
-    // z.B. await signOrder(order)
-
-    // E-Mail vorbereiten
     const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
     const html = renderEmailHtml("Auftragsbestätigung", order);
 
-    // Empfänger bestimmen
     const recipients = new Set<string>();
-    // Sammelpostfach intern
     recipients.add("vertrieb@xvoice-uc.de");
-    // optional Sales
     if (salesEmail) recipients.add(salesEmail);
-    // Kunde aus den Orderdaten (falls vorhanden)
     if (order.customer?.email) recipients.add(order.customer.email);
 
-    // Versand via Resend (wenn möglich, aber nicht blocking)
     const mailResult = await sendEmailsViaResend({
       subject,
       html,
