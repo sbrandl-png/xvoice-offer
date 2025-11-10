@@ -2,13 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 export const runtime = "nodejs";
 
-/* -------------------- tiny response helpers -------------------- */
+/* ---------------- response helpers ---------------- */
 const ok = (data: Record<string, unknown> = {}) =>
   NextResponse.json({ ok: true, ...data }, { status: 200 });
 const err = (status: number, message: string, extra?: Record<string, unknown>) =>
   NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
 
-/* ---------------------- tolerant submit check ------------------- */
+/* --------------- tolerant submit check ------------- */
 function isTruthySubmit(v: unknown) {
   if (v === true || v === 1 || v === "1") return true;
   if (typeof v === "string") {
@@ -18,37 +18,31 @@ function isTruthySubmit(v: unknown) {
   return false;
 }
 
-/* ------------------------- read body robustly ------------------- */
+/* ----------------- robust body reader -------------- */
 async function readBodyObject(req: NextRequest): Promise<Record<string, any>> {
-  // try JSON
   try {
     const data = await req.json();
-    if (data && typeof data === "object") return data as Record<string, any>;
+    if (data && typeof data === "object") return data;
   } catch {}
-
-  // try FormData
   try {
     const form = await req.formData();
     const obj: Record<string, any> = {};
     for (const [k, v] of form.entries()) obj[k] = v;
     if (Object.keys(obj).length) return obj;
   } catch {}
-
-  // try raw text -> JSON parse
   try {
     const raw = await req.text();
-    if (raw && raw.trim()) {
+    if (raw?.trim()) {
       try {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") return parsed;
       } catch {}
     }
   } catch {}
-
   return {};
 }
 
-/* --------------------------- token decode ----------------------- */
+/* ---------------- token decoding utils ------------- */
 function base64UrlToString(b64url: string): string {
   const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
   const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
@@ -63,7 +57,8 @@ function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: fals
 function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
   if (!token || typeof token !== "string") return { ok: false, error: "Leerer oder ungültiger Token." };
   if (token.trim().startsWith("{")) {
-    const p = safeParseJSON(token); if (p.ok) return { ok: true, data: p.data };
+    const p = safeParseJSON(token);
+    if (p.ok) return { ok: true, data: p.data };
   }
   try {
     const raw = base64UrlToString(token);
@@ -73,7 +68,7 @@ function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false;
   return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
 }
 
-/* ------------------------------ types -------------------------- */
+/* --------------------------- types ----------------- */
 type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
 type Customer = { company?: string; contact?: string; email?: string; phone?: string };
 type OrderLike = {
@@ -91,15 +86,17 @@ type OrderLike = {
   [k: string]: any;
 };
 
-/* ----------------------- normalize payload ---------------------- */
+/* --------------- normalize + hard narrowing -------- */
 function normalizeOrderPayload(raw: any):
-  | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number; } }
+  | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number } }
   | { ok: false; error: string; missing?: string[] } {
   const payload: OrderLike = raw ?? {};
+
   const monthlyRowsCand = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
   const oneTimeRowsCand = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
-  const vatCand = typeof payload.vatRate === "number" ? payload.vatRate :
-                  typeof payload.vat === "number" ? payload.vat : undefined;
+  const vatCand = typeof payload.vatRate === "number" ? payload.vatRate
+                : typeof payload.vat === "number" ? payload.vat
+                : undefined;
 
   const missing: string[] = [];
   if (!payload.offerId || typeof payload.offerId !== "string") missing.push("offerId");
@@ -107,22 +104,31 @@ function normalizeOrderPayload(raw: any):
   if (!Array.isArray(oneTimeRowsCand)) missing.push("oneTimeRows (oder Alias oneTime/setup)");
   if (typeof vatCand !== "number") missing.push("vatRate (oder Alias vat)");
 
-  if (missing.length) return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
+  if (missing.length) {
+    return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
+  }
+
+  // *** HIER: hartes Narrowing auf lokale Variablen, damit TS weiß: keine Union-Typen mehr ***
+  const offerIdReq: string = payload.offerId as string;
+  const monthlyRowsReq: OrderRow[] = monthlyRowsCand as OrderRow[];
+  const oneTimeRowsReq: OrderRow[] = oneTimeRowsCand as OrderRow[];
+  const vatRateReq: number = vatCand as number;
+  const customerReq: Customer = payload.customer ?? {};
 
   return {
     ok: true,
     data: {
-      offerId: payload.offerId,
-      customer: payload.customer ?? {},
-      monthlyRows: monthlyRowsCand as OrderRow[],
-      oneTimeRows: oneTimeRowsCand as OrderRow[],
-      vatRate: vatCand as number,
+      offerId: offerIdReq,
+      customer: customerReq,
+      monthlyRows: monthlyRowsReq,
+      oneTimeRows: oneTimeRowsReq,
+      vatRate: vatRateReq,
       createdAt: payload.createdAt,
     },
   };
 }
 
-/* --------------------------- email rendering -------------------- */
+/* --------------------- email rendering ------------- */
 function renderEmailHtml(title: string, order: {
   offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number;
 }) {
@@ -132,10 +138,8 @@ function renderEmailHtml(title: string, order: {
   const vatFactor = 1 + order.vatRate;
   const monthlyGross = monthlySum * vatFactor;
   const otGross = otSum * vatFactor;
-
   const row = (r: OrderRow) =>
     `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
-
   return `
   <div style="font-family:Inter,Arial,sans-serif;line-height:1.5;color:#111">
     <h2 style="margin:0 0 12px 0">${title}</h2>
@@ -165,7 +169,7 @@ function renderEmailHtml(title: string, order: {
   </div>`;
 }
 
-/* --------------------------- resend (optional) ------------------ */
+/* ---------------------- resend (optional) ----------- */
 async function sendViaResend(params: { subject: string; html: string; toList: string[]; from?: string; }) {
   const results: Array<{ to: string; ok: boolean; error?: string }> = [];
   try {
@@ -192,20 +196,17 @@ async function sendViaResend(params: { subject: string; html: string; toList: st
   }
 }
 
-/* -------------------------------- POST ------------------------------------ */
+/* ------------------------------- POST --------------------------- */
 export async function POST(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const qs = Object.fromEntries(url.searchParams.entries());
-
     const body = await readBodyObject(req);
 
-    // submit tolerant: Body oder Query ODER implizit true, wenn es einen token gibt
+    // submit tolerant: Body oder Query, ODER implizit true sobald ein Token da ist
     const token: string = (body.token ?? qs.token ?? "") as string;
     const submitRaw = body.submit ?? qs.submit ?? (token ? true : undefined);
-    if (!isTruthySubmit(submitRaw)) {
-      return err(400, "submit==true erforderlich.");
-    }
+    if (!isTruthySubmit(submitRaw)) return err(400, "submit==true erforderlich.");
     if (!token) return err(400, "Fehlender Token.");
 
     const decoded = decodeOrderToken(token);
@@ -215,7 +216,6 @@ export async function POST(req: NextRequest) {
     if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
 
     const order = norm.data;
-
     const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
     const html = renderEmailHtml("Auftragsbestätigung", order);
 
@@ -238,7 +238,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/* -------------------------------- GET (Test) ------------------------------- */
+/* ------------------------------- GET (Test) --------------------- */
 // /api/place-order?submit=1&token=...
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
