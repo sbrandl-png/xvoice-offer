@@ -1,257 +1,330 @@
 // app/api/place-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
-export const runtime = "nodejs";
 
-/* ---------------- response helpers ---------------- */
-const ok = (data: Record<string, unknown> = {}) =>
-  NextResponse.json({ ok: true, ...data }, { status: 200 });
-const err = (status: number, message: string, extra?: Record<string, unknown>) =>
-  NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
-
-/* --------------- tolerant submit check ------------- */
-function isTruthySubmit(v: unknown) {
-  if (v === true || v === 1 || v === "1") return true;
-  if (typeof v === "string") {
-    const s = v.trim().toLowerCase();
-    return s === "true" || s === "on" || s === "yes" || s === "ja" || s === "y";
-  }
-  return false;
-}
-
-/* ----------------- robust body reader -------------- */
-async function readBodyObject(req: NextRequest): Promise<Record<string, any>> {
-  try {
-    const data = await req.json();
-    if (data && typeof data === "object") return data;
-  } catch {}
-  try {
-    const form = await req.formData();
-    const obj: Record<string, any> = {};
-    for (const [k, v] of form.entries()) obj[k] = v;
-    if (Object.keys(obj).length) return obj;
-  } catch {}
-  try {
-    const raw = await req.text();
-    if (raw?.trim()) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") return parsed;
-      } catch {}
-    }
-  } catch {}
-  return {};
-}
-
-/* ---------------- token decoding utils ------------- */
-function base64UrlToString(b64url: string): string {
-  const b64 = b64url.replace(/-/g, "+").replace(/_/g, "/");
-  const pad = b64.length % 4 === 0 ? "" : "=".repeat(4 - (b64.length % 4));
-  const b64p = b64 + pad;
-  if (typeof (globalThis as any).atob === "function") return (globalThis as any).atob(b64p);
-  return Buffer.from(b64p, "base64").toString("utf-8");
-}
-function safeParseJSON<T = any>(raw: string): { ok: true; data: T } | { ok: false; error: string } {
-  try { return { ok: true, data: JSON.parse(raw) }; }
-  catch (e: any) { return { ok: false, error: e?.message || "JSON parse error" }; }
-}
-function decodeOrderToken(token: string): { ok: true; data: any } | { ok: false; error: string } {
-  if (!token || typeof token !== "string") return { ok: false, error: "Leerer oder ungültiger Token." };
-  if (token.trim().startsWith("{")) {
-    const p = safeParseJSON(token);
-    if (p.ok) return { ok: true, data: p.data };
-  }
-  try {
-    const raw = base64UrlToString(token);
-    const p = safeParseJSON(raw);
-    if (p.ok) return { ok: true, data: p.data };
-  } catch {}
-  return { ok: false, error: "Token konnte nicht decodiert werden (kein JSON/base64url(JSON))." };
-}
-
-/* --------------------------- types ----------------- */
-type OrderRow = { sku: string; name: string; quantity: number; unit: number; total?: number };
-type Customer = { company?: string; contact?: string; email?: string; phone?: string };
-type OrderLike = {
-  offerId?: string;
-  customer?: Customer;
-  monthlyRows?: OrderRow[];
-  oneTimeRows?: OrderRow[];
-  monthly?: OrderRow[];
-  recurring?: OrderRow[];
-  oneTime?: OrderRow[];
-  setup?: OrderRow[];
-  vatRate?: number;
-  vat?: number;
-  createdAt?: number;
-  [k: string]: any;
+type OrderRow = {
+  sku: string;
+  name: string;
+  quantity: number;
+  unit: number;   // Netto-Einzelpreis lt. Angebot
+  total: number;  // Netto-Zeilenpreis lt. Angebot
+  billing?: "monthly" | "one-time";
+  desc?: string;
 };
 
-/* --------------- normalize + hard narrowing -------- */
-function normalizeOrderPayload(raw: any):
-  | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number } }
-  | { ok: false; error: string; missing?: string[] } {
-  const payload: OrderLike = raw ?? {};
+type OrderCustomer = {
+  company?: string;
+  contact?: string;
+  email?: string;
+  phone?: string;
+  street?: string;
+  zip?: string;
+  city?: string;
+};
 
-  const monthlyRowsCand = payload.monthlyRows ?? payload.monthly ?? payload.recurring;
-  const oneTimeRowsCand = payload.oneTimeRows ?? payload.oneTime ?? payload.setup;
-  const vatCand = typeof payload.vatRate === "number" ? payload.vatRate
-                : typeof payload.vat === "number" ? payload.vat
-                : undefined;
+type OrderPayload = {
+  offerId: string;
+  customer: OrderCustomer;
+  monthlyRows: OrderRow[];
+  oneTimeRows: OrderRow[];
+  vatRate: number;     // z. B. 0.19
+  createdAt: number;   // ms epoch
+  // exp?: number;     // optional; wird NICHT vorausgesetzt
+};
 
-  const missing: string[] = [];
-  if (!payload.offerId || typeof payload.offerId !== "string") missing.push("offerId");
-  if (!Array.isArray(monthlyRowsCand)) missing.push("monthlyRows (oder Alias monthly/recurring)");
-  if (!Array.isArray(oneTimeRowsCand)) missing.push("oneTimeRows (oder Alias oneTime/setup)");
-  if (typeof vatCand !== "number") missing.push("vatRate (oder Alias vat)");
+type PreviewBody = { preview: true; token: string };
+type SubmitBody = {
+  submit: true;
+  token: string;
+  accept: boolean;
+  signer: { name: string; email: string };
+  salesEmail?: string;
+};
+type Body = PreviewBody | SubmitBody;
 
-  if (missing.length) {
-    return { ok: false, error: "Orderdaten unvollständig/ungültig", missing };
+function apiError(status: number, message: string) {
+  return NextResponse.json({ ok: false, error: message }, { status });
+}
+
+// sehr einfache JWT-Decode-Funktion ohne Signaturprüfung (für Preview/Submit ausreichend).
+function decodeJwt<T = any>(token: string): T | null {
+  try {
+    const [, payloadB64] = token.split(".");
+    if (!payloadB64) return null;
+    const json = Buffer.from(payloadB64.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
+    return JSON.parse(json) as T;
+  } catch {
+    return null;
   }
+}
 
-  // *** HIER: hartes Narrowing auf lokale Variablen, damit TS weiß: keine Union-Typen mehr ***
-  const offerIdReq: string = payload.offerId as string;
-  const monthlyRowsReq: OrderRow[] = monthlyRowsCand as OrderRow[];
-  const oneTimeRowsReq: OrderRow[] = oneTimeRowsCand as OrderRow[];
-  const vatRateReq: number = vatCand as number;
-  const customerReq: Customer = payload.customer ?? {};
+function isOrderPayload(p: any): p is OrderPayload {
+  return (
+    p &&
+    typeof p.offerId === "string" &&
+    p.customer &&
+    Array.isArray(p.monthlyRows) &&
+    Array.isArray(p.oneTimeRows) &&
+    typeof p.vatRate === "number"
+  );
+}
 
+function sumRows(rows: OrderRow[]) {
+  const net = rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
+  return net;
+}
+
+function computeTotals(order: OrderPayload) {
+  const netMonthly = sumRows(order.monthlyRows);
+  const netOneTime = sumRows(order.oneTimeRows);
+  const vatMonthly = netMonthly * order.vatRate;
+  const vatOneTime = netOneTime * order.vatRate;
   return {
-    ok: true,
-    data: {
-      offerId: offerIdReq,
-      customer: customerReq,
-      monthlyRows: monthlyRowsReq,
-      oneTimeRows: oneTimeRowsReq,
-      vatRate: vatRateReq,
-      createdAt: payload.createdAt,
+    monthly: {
+      netOffer: round2(netMonthly),
+      vat: round2(vatMonthly),
+      gross: round2(netMonthly + vatMonthly),
+    },
+    oneTime: {
+      netOffer: round2(netOneTime),
+      vat: round2(vatOneTime),
+      gross: round2(netOneTime + vatOneTime),
+    },
+    all: {
+      netOffer: round2(netMonthly + netOneTime),
+      vat: round2(vatMonthly + vatOneTime),
+      gross: round2(netMonthly + netOneTime + vatMonthly + vatOneTime),
     },
   };
 }
 
-/* --------------------- email rendering ------------- */
-function renderEmailHtml(title: string, order: {
-  offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number;
-}) {
-  const money = (n: number) => new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n);
-  const monthlySum = order.monthlyRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
-  const otSum = order.oneTimeRows.reduce((s, r) => s + (r.total ?? r.quantity * r.unit), 0);
-  const vatFactor = 1 + order.vatRate;
-  const monthlyGross = monthlySum * vatFactor;
-  const otGross = otSum * vatFactor;
-  const row = (r: OrderRow) =>
-    `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
-  return `
-  <div style="font-family:Inter,Arial,sans-serif;line-height:1.5;color:#111">
-    <h2 style="margin:0 0 12px 0">${title}</h2>
-    <p style="margin:0 0 6px 0"><strong>Vorgangsnummer:</strong> ${order.offerId}</p>
-    <p style="margin:0 0 16px 0">
-      <strong>Kunde:</strong> ${order.customer?.company ?? "-"}<br/>
-      <strong>Kontakt:</strong> ${order.customer?.contact ?? "-"}<br/>
-      <strong>E-Mail:</strong> ${order.customer?.email ?? "-"} · <strong>Telefon:</strong> ${order.customer?.phone ?? "-"}
-    </p>
-    <h3 style="margin:16px 0 8px 0">Monatliche Positionen (netto)</h3>
-    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #eee">
-      <thead><tr style="background:#f6f6f6"><th>SKU</th><th>Bezeichnung</th><th style="text-align:right">Menge</th><th style="text-align:right">Einzel</th><th style="text-align:right">Summe</th></tr></thead>
-      <tbody>${order.monthlyRows.map(row).join("")}</tbody>
-      <tfoot><tr><td colspan="4" style="text-align:right"><strong>Zwischensumme</strong></td><td style="text-align:right"><strong>${money(monthlySum)}</strong></td></tr></tfoot>
-    </table>
-    <h3 style="margin:16px 0 8px 0">Einmalige Positionen (netto)</h3>
-    <table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #eee">
-      <thead><tr style="background:#f6f6f6"><th>SKU</th><th>Bezeichnung</th><th style="text-align:right">Menge</th><th style="text-align:right">Einzel</th><th style="text-align:right">Summe</th></tr></thead>
-      <tbody>${order.oneTimeRows.map(row).join("")}</tbody>
-      <tfoot><tr><td colspan="4" style="text-align:right"><strong>Zwischensumme</strong></td><td style="text-align:right"><strong>${money(otSum)}</strong></td></tr></tfoot>
-    </table>
-    <p style="margin:16px 0 0 0">
-      <strong>USt.-Satz:</strong> ${(order.vatRate * 100).toFixed(0)} %<br/>
-      <strong>Monatlich brutto:</strong> ${money(monthlyGross)}<br/>
-      <strong>Einmalig brutto:</strong> ${money(otGross)}
-    </p>
-  </div>`;
+function round2(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
-/* ---------------------- resend (optional) ----------- */
-async function sendViaResend(params: { subject: string; html: string; toList: string[]; from?: string; }) {
-  const results: Array<{ to: string; ok: boolean; error?: string }> = [];
-  try {
-    const mod: any = await import("resend").catch(() => null);
-    if (!mod || !mod.Resend) return { ok: false, reason: 'Resend SDK nicht verfügbar (Package "resend" fehlt).', results };
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey) return { ok: false, reason: "RESEND_API_KEY nicht gesetzt.", results };
-    const resend = new mod.Resend(apiKey);
-    const from = params.from || "vertrieb@xvoice-uc.de";
+function eur(n: number) {
+  return new Intl.NumberFormat("de-DE", { style: "currency", currency: "EUR" }).format(n || 0);
+}
 
-    for (const to of params.toList.filter(Boolean)) {
-      try {
-        const { error } = await resend.emails.send({ from, to, subject: params.subject, html: params.html });
-        if (error) results.push({ to, ok: false, error: String(error) });
-        else results.push({ to, ok: true });
-      } catch (e: any) {
-        results.push({ to, ok: false, error: e?.message || String(e) });
-      }
-    }
-    const anyFailed = results.some(r => !r.ok);
-    return anyFailed ? { ok: false, reason: "Teilweise fehlgeschlagen.", results } : { ok: true, results };
-  } catch (e: any) {
-    return { ok: false, reason: e?.message || "Unbekannter Fehler beim Resend-Versand.", results };
+// optional: Resend für Mailversand
+async function sendMail(opts: { to: string[]; subject: string; html: string; from?: string }) {
+  const { RESEND_API_KEY, MAIL_FROM } = process.env as Record<string, string | undefined>;
+
+  // Fallback: loggen statt senden
+  if (!RESEND_API_KEY) {
+    console.log("[MAIL:FAKE-SEND]", { ...opts, note: "RESEND_API_KEY fehlt – Mail nur geloggt." });
+    return;
+  }
+
+  const from = opts.from || MAIL_FROM || "xVoice Orders <no-reply@xvoice-uc.de>";
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: opts.to,
+      subject: opts.subject,
+      html: opts.html,
+    }),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    console.error("[MAIL:ERROR]", res.status, txt);
+    // wir werfen hier NICHT, damit der Auftrag trotzdem ok:true zurückgibt
   }
 }
 
-/* ------------------------------- POST --------------------------- */
+function renderMailHTML(args: {
+  headline: string;
+  intro: string;
+  order: OrderPayload;
+}) {
+  const { order, headline, intro } = args;
+  const totals = computeTotals(order);
+
+  const rowsToHtml = (rows: OrderRow[]) =>
+    rows
+      .map(
+        (r) => `
+        <tr>
+          <td style="padding:8px 12px;border-top:1px solid #eee;">
+            <div style="font-weight:600;">${escapeHtml(r.name)}</div>
+            <div style="font-size:12px;color:#666">${escapeHtml(r.sku)}${r.desc ? " · " + escapeHtml(r.desc) : ""}</div>
+          </td>
+          <td style="padding:8px 12px;border-top:1px solid #eee;">${r.quantity}</td>
+          <td style="padding:8px 12px;border-top:1px solid #eee;">${eur(r.unit)}</td>
+          <td style="padding:8px 12px;border-top:1px solid #eee;font-weight:600">${eur(r.total)}</td>
+        </tr>`
+      )
+      .join("");
+
+  return `
+  <div style="font-family:Inter,Arial,sans-serif;background:#f6f7f9;padding:24px;color:#111;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;margin:0 auto;background:#fff;border-radius:14px;overflow:hidden">
+      <tr>
+        <td style="background:#000;padding:20px 24px;display:flex;align-items:center;gap:12px;">
+          <img src="https://onecdn.io/media/b7399880-ec13-4366-a907-6ea635172076/md2x" height="28" alt="xVoice" />
+          <div style="color:#fff;font-size:18px;font-weight:600;">${escapeHtml(headline)}</div>
+          <div style="margin-left:auto;color:#bbb;font-size:12px;">Angebot: ${escapeHtml(order.offerId)}</div>
+        </td>
+      </tr>
+      <tr><td style="padding:20px 24px;font-size:14px;line-height:1.6">${escapeHtml(intro)}</td></tr>
+
+      <tr><td style="padding:4px 24px 0;font-size:16px;font-weight:700">Kundendaten</td></tr>
+      <tr>
+        <td style="padding:8px 24px 16px;font-size:13px;color:#333">
+          <div><b>Firma:</b> ${escapeHtml(order.customer.company || "—")}</div>
+          <div><b>Ansprechpartner:</b> ${escapeHtml(order.customer.contact || "—")}</div>
+          <div><b>E-Mail:</b> ${escapeHtml(order.customer.email || "—")}</div>
+          <div><b>Telefon:</b> ${escapeHtml(order.customer.phone || "—")}</div>
+          <div><b>Adresse:</b> ${escapeHtml(
+            [order.customer.street, [order.customer.zip, order.customer.city].filter(Boolean).join(" ")].filter(Boolean).join(", ") || "—"
+          )}</div>
+        </td>
+      </tr>
+
+      <tr><td style="padding:4px 24px 0;font-size:16px;font-weight:700">Monatliche Positionen</td></tr>
+      <tr>
+        <td style="padding:8px 24px 16px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:13px;color:#333">
+            <thead>
+              <tr>
+                <th align="left" style="padding:8px 12px;color:#666">Position</th>
+                <th align="left" style="padding:8px 12px;color:#666">Menge</th>
+                <th align="left" style="padding:8px 12px;color:#666">Einzelpreis</th>
+                <th align="left" style="padding:8px 12px;color:#666">Summe</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsToHtml(order.monthlyRows)}
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right">Zwischensumme (netto)</td><td style="padding:8px 12px;font-weight:700">${eur(totals.monthly.netOffer)}</td></tr>
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right">zzgl. USt. (${Math.round(order.vatRate*100)}%)</td><td style="padding:8px 12px;font-weight:700">${eur(totals.monthly.vat)}</td></tr>
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right"><b>Bruttosumme</b></td><td style="padding:8px 12px;font-weight:700">${eur(totals.monthly.gross)}</td></tr>
+            </tbody>
+          </table>
+        </td>
+      </tr>
+
+      <tr><td style="padding:4px 24px 0;font-size:16px;font-weight:700">Einmalige Positionen</td></tr>
+      <tr>
+        <td style="padding:8px 24px 16px">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="font-size:13px;color:#333">
+            <thead>
+              <tr>
+                <th align="left" style="padding:8px 12px;color:#666">Position</th>
+                <th align="left" style="padding:8px 12px;color:#666">Menge</th>
+                <th align="left" style="padding:8px 12px;color:#666">Einzelpreis</th>
+                <th align="left" style="padding:8px 12px;color:#666">Summe</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsToHtml(order.oneTimeRows)}
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right">Zwischensumme (netto)</td><td style="padding:8px 12px;font-weight:700">${eur(totals.oneTime.netOffer)}</td></tr>
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right">zzgl. USt. (${Math.round(order.vatRate*100)}%)</td><td style="padding:8px 12px;font-weight:700">${eur(totals.oneTime.vat)}</td></tr>
+              <tr><td></td><td></td><td style="padding:8px 12px;text-align:right"><b>Bruttosumme</b></td><td style="padding:8px 12px;font-weight:700">${eur(totals.oneTime.gross)}</td></tr>
+            </tbody>
+          </table>
+        </td>
+      </tr>
+
+      <tr>
+        <td style="padding:12px 24px 24px">
+          <div style="border-top:1px solid #eee;padding-top:12px;font-size:14px">
+            <div><b>Gesamtsumme netto:</b> ${eur(totals.all.netOffer)}</div>
+            <div><b>zzgl. USt.:</b> ${eur(totals.all.vat)}</div>
+            <div style="font-size:16px;margin-top:6px;"><b>Gesamtsumme brutto:</b> ${eur(totals.all.gross)}</div>
+          </div>
+          <div style="margin-top:18px;font-size:12px;color:#666">
+            © ${new Date().getFullYear()} xVoice UC UG (haftungsbeschränkt) · Peter-Müller-Straße 3, 40468 Düsseldorf ·
+            <a href="https://www.xvoice-uc.de/impressum">Impressum & Datenschutz</a>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  `;
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 export async function POST(req: NextRequest) {
+  let body: any = null;
   try {
-    const url = new URL(req.url);
-    const qs = Object.fromEntries(url.searchParams.entries());
-    const body = await readBodyObject(req);
+    body = await req.json();
+  } catch {
+    return apiError(400, "Body fehlt oder ist kein JSON.");
+  }
 
-    // submit tolerant: Body oder Query, ODER implizit true sobald ein Token da ist
-    const token: string = (body.token ?? qs.token ?? "") as string;
-    const submitRaw = body.submit ?? qs.submit ?? (token ? true : undefined);
-    if (!isTruthySubmit(submitRaw)) return err(400, "submit==true erforderlich.");
-    if (!token) return err(400, "Fehlender Token.");
+  // Prüfe Preview/Submit-Formate
+  const isPreview = !!body?.preview && typeof body.token === "string";
+  const isSubmit =
+    !!body?.submit &&
+    typeof body.token === "string" &&
+    typeof body.accept === "boolean" &&
+    body.signer &&
+    typeof body.signer.name === "string" &&
+    typeof body.signer.email === "string";
 
-    const decoded = decodeOrderToken(token);
-    if (!decoded.ok) return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
+  if (!isPreview && !isSubmit) {
+    return apiError(400, "Unsupported payload.");
+  }
 
-    const norm = normalizeOrderPayload(decoded.data);
-    if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
+  // Token decoden
+  const decoded = decodeJwt<any>(body.token);
+  if (!decoded || !isOrderPayload(decoded)) {
+    return apiError(400, "Payload im Token ist ungültig.");
+  }
 
-    const order = norm.data;
-    const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
-    const html = renderEmailHtml("Auftragsbestätigung", order);
+  // (Optional) Ablaufprüfung – nur wenn exp existiert
+  const exp = (decoded as any).exp;
+  if (exp && Math.floor(Date.now() / 1000) > Number(exp)) {
+    return apiError(400, "Token abgelaufen.");
+  }
 
-    const recipients = new Set<string>();
-    recipients.add("vertrieb@xvoice-uc.de");
-    if (body.salesEmail) recipients.add(String(body.salesEmail));
-    if (order.customer?.email) recipients.add(order.customer.email);
+  const order: OrderPayload = decoded;
+  const totals = computeTotals(order);
 
-    const emails = await sendViaResend({
-      subject,
-      html,
-      toList: Array.from(recipients),
-      from: "vertrieb@xvoice-uc.de",
+  // PREVIEW: Daten an die Order-Page zurückliefern
+  if (isPreview) {
+    return NextResponse.json({ ok: true, order, totals });
+  }
+
+  // SUBMIT: Mails an Kunde, optional Vertrieb und verteiler
+  if (isSubmit) {
+    if (!body.accept) return apiError(400, "Bitte Bedingungen bestätigen (accept).");
+
+    const customerMail = order.customer.email || body.signer.email;
+    const to: string[] = [];
+    if (customerMail) to.push(customerMail);
+    if (body.salesEmail) to.push(body.salesEmail);
+    to.push("vertrieb@xvoice-uc.de");
+
+    const subject = `Auftragsbestätigung – ${order.customer.company || order.customer.contact || order.offerId}`;
+    const html = renderMailHTML({
+      headline: "Auftragsbestätigung",
+      intro:
+        `Guten Tag,
+         Ihre Bestellung zu Angebot ${order.offerId} wurde bestätigt.
+         Unterzeichner: ${escapeHtml(body.signer.name)} (${escapeHtml(body.signer.email)}).`,
+      order,
     });
 
-    return ok({ message: "Bestellung übernommen.", offerId: order.offerId, emails });
-  } catch (e: any) {
-    console.error("[place-order] Unhandled error:", e);
-    return err(500, "Interner Fehler beim Verarbeiten der Bestellung.");
+    // Mail senden (mit Fallback auf Log)
+    await sendMail({ to, subject, html });
+
+    return NextResponse.json({ ok: true });
   }
-}
 
-/* ------------------------------- GET (Test) --------------------- */
-// /api/place-order?submit=1&token=...
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const token = url.searchParams.get("token") || "";
-  const submit = url.searchParams.get("submit");
-  if (!isTruthySubmit(submit ?? (token ? true : undefined))) return err(400, "submit==true erforderlich (GET).");
-  if (!token) return err(400, "Fehlender Token (GET).");
-
-  const decoded = decodeOrderToken(token);
-  if (!decoded.ok) return err(400, "Token ungültig/unsupported.", { reason: decoded.error });
-
-  const norm = normalizeOrderPayload(decoded.data);
-  if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig: " + norm.error, { missing: norm.missing });
-
-  return ok({ message: "GET-Test erfolgreich", offerId: norm.data.offerId });
+  // sollte nicht erreicht werden
+  return apiError(400, "Unsupported payload.");
 }
