@@ -109,7 +109,10 @@ export async function POST(req: NextRequest) {
   }
 
   const { submit, token, order, signer, accept, salesEmail } = body || {};
-  if (!submit) return NextResponse.json({ ok: false, error: "submit==true erforderlich." }, { status: 400 });
+const submitFlag = (typeof submit === "undefined") ? true : Boolean(submit);
+if (!submitFlag) {
+  return NextResponse.json({ ok: false, error: "Bestellung nicht bestätigt (submit=false)." }, { status: 400 });
+}
   if (accept === false) {
     return NextResponse.json({ ok: false, error: "Bestätigung (AGB/Beauftragung) nicht erteilt." }, { status: 400 });
   }
