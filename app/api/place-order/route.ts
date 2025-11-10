@@ -6,7 +6,7 @@ const ok = (data: Record<string, unknown> = {}) =>
 const err = (status: number, message: string, extra?: Record<string, unknown>) =>
   NextResponse.json({ ok: false, error: message, ...(extra ?? {}) }, { status });
 
-/* ---------- submit tolerant ---------- */
+/* ---------- submit tolerant (Default: true) ---------- */
 function isTruthySubmit(v: unknown) {
   return v === undefined || v === null || v === true || v === "true" || v === 1 || v === "1";
 }
@@ -49,22 +49,20 @@ function first<T>(arr: T[] | undefined): T | undefined { return Array.isArray(ar
 
 /* ---------- Heuristiken: offerId / vat / rows ---------- */
 function findOfferId(input: any): string | undefined {
-  // Bevorzugte Keys
   const preferred = ["offerId", "offerID", "angebotId", "angebotID", "orderId", "id"];
   for (const { key, value } of walk(input)) {
     if (typeof value === "string") {
       if (preferred.includes(key)) return value;
-      if (key.toLowerCase().includes("offer") && key.toLowerCase().includes("id")) return value;
+      const kl = key.toLowerCase();
+      if (kl.includes("offer") && kl.includes("id")) return value;
       if (key === "id" && value.length >= 5) return value;
     }
   }
-  // offer.id
   if (input?.offer?.id && typeof input.offer.id === "string") return input.offer.id;
   return undefined;
 }
-
 function findVat(input: any): number | undefined {
-  const candidates: Array<number> = [];
+  const candidates: number[] = [];
   for (const { key, value } of walk(input)) {
     if (typeof value === "number") {
       const kl = key.toLowerCase();
@@ -73,11 +71,9 @@ function findVat(input: any): number | undefined {
       }
     }
   }
-  // Normalisieren: 19 => 0.19
-  const norm = (v: number) => (v > 1.01 ? v / 100 : v);
-  return first(candidates.map(norm)) ?? undefined;
+  const norm = (v: number) => (v > 1.01 ? v / 100 : v); // 19 -> 0.19
+  return first(candidates.map(norm));
 }
-
 function asNumber(n: any, fallback = 0): number {
   if (typeof n === "number") return n;
   if (typeof n === "string") {
@@ -86,7 +82,6 @@ function asNumber(n: any, fallback = 0): number {
   }
   return fallback;
 }
-
 function mapRowLike(x: any): OrderRow | undefined {
   if (!x || typeof x !== "object") return undefined;
   const sku = x.sku ?? x.code ?? x.itemCode ?? x.article ?? x.productId ?? x.productCode ?? "";
@@ -94,16 +89,13 @@ function mapRowLike(x: any): OrderRow | undefined {
   const quantity = asNumber(x.quantity ?? x.qty ?? x.menge ?? 1, 1);
   const unit = asNumber(x.unit ?? x.price ?? x.unitPrice ?? x.einzelpreis ?? 0, 0);
   const totalRaw = x.total ?? x.sum ?? x.lineTotal ?? x.gesamt ?? undefined;
-  const total = typeof totalRaw === "number" ? totalRaw : totalRaw != null ? asNumber(totalRaw) : undefined;
-
+  const total = totalRaw != null ? asNumber(totalRaw) : undefined;
   if (!sku || !name) return undefined;
   return { sku: String(sku), name: String(name), quantity, unit, total };
 }
-
 function looksLikeRowArray(a: any): boolean {
   return Array.isArray(a) && a.length > 0 && typeof a[0] === "object";
 }
-
 function findRowArrays(input: any): { monthly?: OrderRow[]; oneTime?: OrderRow[] } {
   const monthlyKeys = ["monthly", "recurring", "monthlyRows", "abo", "mrc", "monatlich"];
   const oneTimeKeys = ["oneTime", "setup", "oneTimeRows", "otc", "einmalig"];
@@ -115,21 +107,11 @@ function findRowArrays(input: any): { monthly?: OrderRow[]; oneTime?: OrderRow[]
       const k = key.toLowerCase();
       const p = path.map(s => s.toLowerCase()).join(".");
       const arr = (value as any[]).map(mapRowLike).filter(Boolean) as OrderRow[];
-
       if (!arr.length) continue;
-
-      if (monthlyKeys.some(m => k.includes(m) || p.includes(m))) {
-        monthly = monthly ?? arr;
-        continue;
-      }
-      if (oneTimeKeys.some(m => k.includes(m) || p.includes(m))) {
-        oneTime = oneTime ?? arr;
-        continue;
-      }
+      if (!monthly && (monthlyKeys.some(m => k.includes(m) || p.includes(m)))) monthly = arr;
+      else if (!oneTime && (oneTimeKeys.some(m => k.includes(m) || p.includes(m)))) oneTime = arr;
     }
   }
-
-  // Fallback: Nimm die ersten zwei plausiblen Arrays
   if (!monthly || !oneTime) {
     const allCandidates: OrderRow[][] = [];
     for (const { value } of walk(input)) {
@@ -144,20 +126,18 @@ function findRowArrays(input: any): { monthly?: OrderRow[]; oneTime?: OrderRow[]
       oneTime = second ?? [];
     }
   }
-
   return { monthly, oneTime };
 }
 
-/* ---------- Normalisierung robust (akzeptiert viele Formate) ---------- */
+/* ---------- Normalisierung (robust) ---------- */
 function normalizeOrderPayload(input: any):
   | { ok: true; data: { offerId: string; customer: Customer; monthlyRows: OrderRow[]; oneTimeRows: OrderRow[]; vatRate: number; createdAt?: number } }
   | { ok: false; error: string; missing?: string[]; receivedPreview?: any } {
 
-  const offerId = findOfferId(input);
-  const vatRate = findVat(input);
+  const offerIdMaybe = findOfferId(input);
+  const vatRateMaybe = findVat(input);
   const rows = findRowArrays(input);
 
-  // Kunde optional – best effort
   const customer: Customer = {
     company: input?.customer?.company ?? input?.company ?? input?.kunde ?? input?.customerName,
     contact: input?.customer?.contact ?? input?.contact ?? input?.ansprechpartner,
@@ -166,27 +146,25 @@ function normalizeOrderPayload(input: any):
   };
 
   const missing: string[] = [];
-  if (!offerId) missing.push("offerId");
+  if (!offerIdMaybe) missing.push("offerId");
   if (!rows.monthly || rows.monthly.length === 0) missing.push("monthlyRows (oder monthly/recurring)");
   if (!rows.oneTime) missing.push("oneTimeRows (oder oneTime/setup)");
-  if (typeof vatRate !== "number") missing.push("vatRate (oder vat)");
+  if (typeof vatRateMaybe !== "number") missing.push("vatRate (oder vat)");
 
   if (missing.length) {
-    // kleine Vorschau zurückgeben, aber sensible Felder nicht ausplaudern
     const preview = JSON.stringify(input ?? {}, (_k, v) => (typeof v === "string" && v.length > 120 ? v.slice(0, 120) + "…" : v), 2);
     return { ok: false, error: "Orderdaten unvollständig/ungültig", missing, receivedPreview: preview.slice(0, 2000) };
   }
 
+  // Ab hier garantiert vorhanden -> Non-Null + explizite Typen
+  const offerId: string = offerIdMaybe!;
+  const vatRate: number = vatRateMaybe!;
+  const monthlyRows: OrderRow[] = rows.monthly!;
+  const oneTimeRows: OrderRow[] = rows.oneTime ?? [];
+
   return {
     ok: true,
-    data: {
-      offerId,
-      customer,
-      monthlyRows: rows.monthly!,
-      oneTimeRows: rows.oneTime ?? [],
-      vatRate,
-      createdAt: input?.createdAt,
-    },
+    data: { offerId, customer, monthlyRows, oneTimeRows, vatRate, createdAt: input?.createdAt },
   };
 }
 
@@ -200,7 +178,6 @@ function renderEmailHtml(
 
   const monthlyNet = sum(order.monthlyRows);
   const oneTimeNet = sum(order.oneTimeRows);
-  const vatFactor = 1 + order.vatRate;
 
   const tr = (r: OrderRow) =>
     `<tr><td>${r.sku}</td><td>${r.name}</td><td style="text-align:right">${r.quantity}</td><td style="text-align:right">${money(r.unit)}</td><td style="text-align:right">${money(r.total ?? r.quantity * r.unit)}</td></tr>`;
@@ -277,9 +254,16 @@ export async function POST(req: NextRequest) {
 
     // Token ODER direkte Orderdaten
     const token: string | undefined = body?.token || undefined;
-    const rawOrder = token ? (decodeOrderToken(token).ok ? (decodeOrderToken(token) as any).data : {}) : (body?.order ?? body);
+    let rawOrder: any;
+    if (token) {
+      const dec = decodeOrderToken(token);
+      if (!dec.ok) return err(400, "Token ungültig/unsupported.", { reason: dec.error });
+      rawOrder = dec.data;
+    } else {
+      rawOrder = body?.order ?? body;
+    }
 
-    // Normalisieren (robust)
+    // Normalisieren
     const norm = normalizeOrderPayload(rawOrder);
     if (!norm.ok) return err(400, "Orderdaten unvollständig/ungültig", { missing: norm.missing, receivedPreview: norm.receivedPreview });
 
@@ -295,7 +279,12 @@ export async function POST(req: NextRequest) {
     // Versand
     const subject = `xVoice UC – Auftragsbestätigung ${order.offerId}`;
     const html = renderEmailHtml("Auftragsbestätigung", order);
-    const mailResult = await sendEmailsViaResend({ subject, html, toList: Array.from(recipients), from: "vertrieb@xvoice-uc.de" });
+    const mailResult = await sendEmailsViaResend({
+      subject,
+      html,
+      toList: Array.from(recipients),
+      from: "vertrieb@xvoice-uc.de",
+    });
 
     return ok({ message: "Bestellung übernommen.", offerId: order.offerId, emails: mailResult, usedToken: Boolean(token) });
   } catch (e: any) {
