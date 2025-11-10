@@ -50,9 +50,12 @@ function decodeJwtLoose(token: string): any | null {
 function normalize(p: any): OrderPayload | null {
   if (!p || typeof p !== "object") return null;
 
-  const monthly = Array.isArray(p.monthlyRows) ? p.monthlyRows : (p.monthly || p.recurring || []);
-  const oneTime = Array.isArray(p.oneTimeRows) ? p.oneTimeRows : (p.oneTime || p.setup || []);
-  const vat = typeof p.vatRate === "number" ? p.vatRate : (typeof p.vat === "number" ? p.vat : 0.19);
+  const monthly =
+    Array.isArray(p.monthlyRows) ? p.monthlyRows : (p.monthly || p.recurring || []);
+  const oneTime =
+    Array.isArray(p.oneTimeRows) ? p.oneTimeRows : (p.oneTime || p.setup || []);
+  const vat =
+    typeof p.vatRate === "number" ? p.vatRate : (typeof p.vat === "number" ? p.vat : 0.19);
 
   if (!p.offerId || !Array.isArray(monthly) || !Array.isArray(oneTime)) return null;
 
@@ -79,7 +82,6 @@ function isOrderPayload(o: any): o is OrderPayload {
   );
 }
 
-// optionaler HS256-Signer (für interne Bestellnummern/Weitergabe)
 function signToken(payload: object): string {
   const header = { alg: "HS256", typ: "JWT" };
   const b64url = (buf: Buffer | string) =>
@@ -89,10 +91,7 @@ function signToken(payload: object): string {
   const h = b64url(JSON.stringify(header));
   const p = b64url(JSON.stringify(payload));
 
-  if (!secret) {
-    // Fallback: unsigniert – nur verwenden, wenn Link-Sicherheit nicht kritisch ist
-    return `${h}.${p}.`;
-  }
+  if (!secret) return `${h}.${p}.`;
 
   const data = `${h}.${p}`;
   const sig = crypto.createHmac("sha256", secret).update(data).digest("base64")
@@ -102,7 +101,6 @@ function signToken(payload: object): string {
 
 // ===== API =====
 export async function POST(req: NextRequest) {
-  // Erwartet: { submit: boolean, token?: string, order?: object, signer?: {name,email}, accept?: boolean, salesEmail?: string }
   let body: any;
   try {
     body = await req.json();
@@ -111,65 +109,58 @@ export async function POST(req: NextRequest) {
   }
 
   const { submit, token, order, signer, accept, salesEmail } = body || {};
-  if (!submit) {
-    return NextResponse.json({ ok: false, error: "submit==true erforderlich." }, { status: 400 });
-  }
+  if (!submit) return NextResponse.json({ ok: false, error: "submit==true erforderlich." }, { status: 400 });
   if (accept === false) {
     return NextResponse.json({ ok: false, error: "Bestätigung (AGB/Beauftragung) nicht erteilt." }, { status: 400 });
   }
 
-  // 1) Order ermitteln (aus order oder token)
-  let payload: OrderPayload | null = null;
+  // 1) Kandidat ermitteln (roh), dann normalisieren
+  const candidate: any = order ?? (token ? decodeJwtLoose(token) : null);
+  const normalized = normalize(candidate);
 
-  if (order) {
-    payload = normalize(order);
-  } else if (token) {
-    const decoded = decodeJwtLoose(token);
-    payload = normalize(decoded);
-  }
-
-  if (!payload) {
+  if (!normalized) {
+    // Detail-Feedback auf Basis des ROH-Objekts (nicht 'normalized')
+    const p: any = candidate ?? {};
+    const reasons: string[] = [];
+    if (typeof p.offerId !== "string") reasons.push("offerId");
+    const monthly = Array.isArray(p.monthlyRows) ? p.monthlyRows : (p.monthly || p.recurring);
+    const oneTime = Array.isArray(p.oneTimeRows) ? p.oneTimeRows : (p.oneTime || p.setup);
+    if (!Array.isArray(monthly)) reasons.push("monthlyRows (oder Alias monthly/recurring)");
+    if (!Array.isArray(oneTime)) reasons.push("oneTimeRows (oder Alias oneTime/setup)");
+    if (!(typeof p.vatRate === "number" || typeof p.vat === "number")) reasons.push("vatRate (oder Alias vat)");
     return NextResponse.json(
-      { ok: false, error: "Orderdaten unlesbar. Bitte gültiges 'order' Objekt oder 'token' übergeben." },
+      { ok: false, error: `Orderdaten unvollständig/ungültig: ${reasons.join(", ")}` },
       { status: 400 }
     );
   }
 
-  // 2) Expiry prüfen – optional
-  if (payload.exp && Math.floor(Date.now() / 1000) > Number(payload.exp)) {
+  // 2) Optionales Ablauf prüfen
+  if (normalized.exp && Math.floor(Date.now() / 1000) > Number(normalized.exp)) {
     return NextResponse.json({ ok: false, error: "Token/Angebot abgelaufen." }, { status: 400 });
   }
 
-  if (!isOrderPayload(payload)) {
-    // detaillierter Grund
-    const reasons: string[] = [];
-    if (typeof payload.offerId !== "string") reasons.push("offerId");
-    if (!Array.isArray(payload.monthlyRows)) reasons.push("monthlyRows");
-    if (!Array.isArray(payload.oneTimeRows)) reasons.push("oneTimeRows");
-    if (typeof payload.vatRate !== "number") reasons.push("vatRate");
-    if (typeof payload.createdAt !== "number") reasons.push("createdAt");
-    return NextResponse.json(
-      { ok: false, error: `Orderdaten unvollständig: ${reasons.join(", ")}` },
-      { status: 400 }
-    );
+  // 3) Finales Schema absichern
+  if (!isOrderPayload(normalized)) {
+    return NextResponse.json({ ok: false, error: "Orderdaten fehlerhaft (Schema)." }, { status: 400 });
   }
 
-  // 3) (Beispiel) interne Referenz generieren
+  const payload = normalized;
+
+  // 4) Interne Referenz
   const orderRef = `XVO-${payload.offerId}-${Date.now().toString(36).toUpperCase()}`;
 
-  // 4) Mails versenden (Kunde, Vertrieb, vertrieb@xvoice-uc.de)
-  // ---- hier ggf. Resend, SMTP o.ä. einhängen; unten nur Stub/Logik ----
-  const recipients = [
-    payload.customer.email,          // Kunde
-    salesEmail || undefined,         // Vertrieb (optional aus UI)
-    "vertrieb@xvoice-uc.de",         // internes Postfach
-  ].filter(Boolean) as string[];
-
-  // Render kleines Textresümee (du hast separate HTML-Templates – hier nur schnell & stabil):
+  // 5) Summen
   const sum = (rows: OrderRow[]) => rows.reduce((s, r) => s + (Number(r.total) || 0), 0);
   const net = sum(payload.monthlyRows) + sum(payload.oneTimeRows);
   const vat = net * payload.vatRate;
   const gross = net + vat;
+
+  // 6) E-Mail-Empfänger
+  const recipients = [
+    payload.customer.email,
+    salesEmail || undefined,
+    "vertrieb@xvoice-uc.de",
+  ].filter(Boolean) as string[];
 
   const subject = `Auftragsbestätigung – ${payload.customer.company || payload.offerId} – ${orderRef}`;
   const text = [
@@ -187,11 +178,11 @@ export async function POST(req: NextRequest) {
     `zzgl. USt.:   ${eur(vat)}`,
     `Gesamt brutto:${eur(gross)}`,
     ``,
-    `Wir melden uns für das Kick-off. Optional können Sie bereits hier einen Termin buchen:`,
+    `Kick-off-Gespräch buchen:`,
     `https://calendly.com/s-brandl-xvoice-uc/xvoice-uc-kickoff-meeting`,
   ].join("\n");
 
-  // Stub Versand (ersetze durch deinen Mailer / Resend):
+  // 7) Versand (Resend/SMTP) – Stub
   const key = process.env.RESEND_API_KEY;
   if (key) {
     await fetch("https://api.resend.com/emails", {
@@ -208,9 +199,5 @@ export async function POST(req: NextRequest) {
     console.log("[PLACE-ORDER] Mail (FAKE):", { recipients, subject, text });
   }
 
-  // 5) Antwort an Frontend
-  return NextResponse.json({
-    ok: true,
-    orderRef,
-  });
+  return NextResponse.json({ ok: true, orderRef });
 }
